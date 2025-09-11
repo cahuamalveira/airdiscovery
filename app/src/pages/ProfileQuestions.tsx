@@ -4,7 +4,6 @@ import {
   Container,
   Typography,
   Box,
-  Grid,
   Card,
   CardContent,
   CardMedia,
@@ -16,7 +15,6 @@ import {
   RadioGroup,
   FormControlLabel,
   FormControl,
-  FormLabel,
   Paper
 } from '@mui/material';
 import { destinations } from '../data/destinations';

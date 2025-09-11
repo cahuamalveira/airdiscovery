@@ -70,7 +70,7 @@ function AdminDashboard() {
 
       <Paper sx={{ p: 3, mb: 4 }}>
         <Grid container spacing={3}>
-          <Grid item xs={12} sm={6} md={3}>
+          <Grid size={{ xs: 12, sm: 6, md: 3 }}>
             <Card>
               <CardContent>
                 <Typography color="textSecondary" gutterBottom>
@@ -82,7 +82,7 @@ function AdminDashboard() {
               </CardContent>
             </Card>
           </Grid>
-          <Grid item xs={12} sm={6} md={3}>
+          <Grid size={{ xs: 12, sm: 6, md: 3 }}>
             <Card>
               <CardContent>
                 <Typography color="textSecondary" gutterBottom>
@@ -94,7 +94,7 @@ function AdminDashboard() {
               </CardContent>
             </Card>
           </Grid>
-          <Grid item xs={12} sm={6} md={3}>
+          <Grid size={{ xs: 12, sm: 6, md: 3 }}>
             <Card>
               <CardContent>
                 <Typography color="textSecondary" gutterBottom>
@@ -106,7 +106,7 @@ function AdminDashboard() {
               </CardContent>
             </Card>
           </Grid>
-          <Grid item xs={12} sm={6} md={3}>
+          <Grid size={{ xs: 12, sm: 6, md: 3 }}>
             <Card>
               <CardContent>
                 <Typography color="textSecondary" gutterBottom>
@@ -140,7 +140,7 @@ function AdminDashboard() {
               Destinos Mais Selecionados
             </Typography>
             <Grid container spacing={3}>
-              <Grid item xs={12} md={6}>
+              <Grid size={{ xs: 12, md: 6 }}>
                 <ResponsiveContainer width="100%" height={300}>
                   <BarChart
                     data={statistics.popularDestinations}
@@ -160,7 +160,7 @@ function AdminDashboard() {
                   </BarChart>
                 </ResponsiveContainer>
               </Grid>
-              <Grid item xs={12} md={6}>
+              <Grid size={{ xs: 12, md: 6 }}>
                 <ResponsiveContainer width="100%" height={300}>
                   <PieChart>
                     <Pie
@@ -182,7 +182,7 @@ function AdminDashboard() {
                   </PieChart>
                 </ResponsiveContainer>
               </Grid>
-              <Grid item xs={12}>
+              <Grid size={12}>
                 <TableContainer component={Paper}>
                   <Table>
                     <TableHead>
@@ -218,7 +218,7 @@ function AdminDashboard() {
               Origens Mais Populares
             </Typography>
             <Grid container spacing={3}>
-              <Grid item xs={12} md={6}>
+              <Grid size={{ xs: 12, md: 6 }}>
                 <ResponsiveContainer width="100%" height={300}>
                   <BarChart
                     data={statistics.popularOrigins}
@@ -238,7 +238,7 @@ function AdminDashboard() {
                   </BarChart>
                 </ResponsiveContainer>
               </Grid>
-              <Grid item xs={12} md={6}>
+              <Grid size={{ xs: 12, md: 6 }}>
                 <ResponsiveContainer width="100%" height={300}>
                   <PieChart>
                     <Pie
@@ -260,7 +260,7 @@ function AdminDashboard() {
                   </PieChart>
                 </ResponsiveContainer>
               </Grid>
-              <Grid item xs={12}>
+              <Grid size={12}>
                 <TableContainer component={Paper}>
                   <Table>
                     <TableHead>
@@ -296,11 +296,11 @@ function AdminDashboard() {
               Relatório de Vendas
             </Typography>
             <Grid container spacing={3}>
-              <Grid item xs={12}>
+              <Grid size={12}>
                 <Card sx={{ mb: 3 }}>
                   <CardContent>
                     <Grid container spacing={2}>
-                      <Grid item xs={12} sm={4}>
+                      <Grid size={{ xs: 12, sm: 4 }}>
                         <Typography color="textSecondary" gutterBottom>
                           Total de Vendas
                         </Typography>
@@ -308,7 +308,7 @@ function AdminDashboard() {
                           {statistics.totalBookings}
                         </Typography>
                       </Grid>
-                      <Grid item xs={12} sm={4}>
+                      <Grid size={{ xs: 12, sm: 4 }}>
                         <Typography color="textSecondary" gutterBottom>
                           Receita Total
                         </Typography>
@@ -316,7 +316,7 @@ function AdminDashboard() {
                           R$ {statistics.revenueGenerated.toLocaleString()}
                         </Typography>
                       </Grid>
-                      <Grid item xs={12} sm={4}>
+                      <Grid size={{ xs: 12, sm: 4 }}>
                         <Typography color="textSecondary" gutterBottom>
                           Ticket Médio
                         </Typography>
@@ -328,7 +328,7 @@ function AdminDashboard() {
                   </CardContent>
                 </Card>
               </Grid>
-              <Grid item xs={12}>
+              <Grid size={12}>
                 <TableContainer component={Paper}>
                   <Table>
                     <TableHead>
@@ -358,7 +358,7 @@ function AdminDashboard() {
                   </Table>
                 </TableContainer>
               </Grid>
-              <Grid item xs={12} sx={{ mt: 2 }}>
+              <Grid size={12} sx={{ mt: 2 }}>
                 <Button variant="contained" color="primary">
                   Exportar Relatório
                 </Button>

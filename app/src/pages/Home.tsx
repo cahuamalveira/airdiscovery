@@ -14,7 +14,7 @@ import {
 import FlightTakeoffIcon from '@mui/icons-material/FlightTakeoff';
 import ExploreIcon from '@mui/icons-material/Explore';
 
-function Home() {
+const Home: React.FC = () => {
   const navigate = useNavigate();
 
   return (
@@ -38,7 +38,7 @@ function Home() {
       </Box>
 
       <Grid container spacing={4}>
-        <Grid item xs={12} md={6}>
+        <Grid size={{ xs: 12, md: 6 }}>
           <Card>
             <CardMedia
               component="img"
@@ -55,14 +55,14 @@ function Home() {
               </Typography>
               <Button 
                 variant="outlined" 
-                onClick={( ) => navigate('/destinos')}
+                onClick={() => navigate('/destinos')}
               >
                 Explorar Destinos
               </Button>
             </CardContent>
           </Card>
         </Grid>
-        <Grid item xs={12} md={6}>
+        <Grid size={{ xs: 12, md: 6 }}>
           <Card>
             <CardMedia
               component="img"
@@ -79,7 +79,7 @@ function Home() {
               </Typography>
               <Button 
                 variant="outlined"
-                onClick={( ) => navigate('/voos')}
+                onClick={() => navigate('/voos')}
                 startIcon={<FlightTakeoffIcon />}
               >
                 Buscar Voos
@@ -94,7 +94,7 @@ function Home() {
           Como Funciona
         </Typography>
         <Grid container spacing={2}>
-          <Grid item xs={12} md={4}>
+          <Grid size={{ xs: 12, md: 4 }}>
             <Box sx={{ textAlign: 'center', p: 2 }}>
               <Typography variant="h6" gutterBottom>
                 1. Escolha seu Destino
@@ -104,7 +104,7 @@ function Home() {
               </Typography>
             </Box>
           </Grid>
-          <Grid item xs={12} md={4}>
+          <Grid size={{ xs: 12, md: 4 }}>
             <Box sx={{ textAlign: 'center', p: 2 }}>
               <Typography variant="h6" gutterBottom>
                 2. Responda ao Questionário
@@ -114,7 +114,7 @@ function Home() {
               </Typography>
             </Box>
           </Grid>
-          <Grid item xs={12} md={4}>
+          <Grid size={{ xs: 12, md: 4 }}>
             <Box sx={{ textAlign: 'center', p: 2 }}>
               <Typography variant="h6" gutterBottom>
                 3. Receba Recomendações
@@ -128,6 +128,6 @@ function Home() {
       </Paper>
     </Container>
   );
-}
+};
 
 export default Home;
