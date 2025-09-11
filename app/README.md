@@ -1,43 +1,53 @@
-# Getting Started with Create React App
+# AIR Discovery - React + Vite
 
-This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
+Este projeto foi migrado do Create React App para [Vite](https://vitejs.dev/) para melhor performance e experiência de desenvolvimento.
 
-## Available Scripts
+## Scripts Disponíveis
 
-In the project directory, you can run:
+No diretório do projeto, você pode executar:
 
-### `npm start`
+### `npm run dev`
 
-Runs the app in the development mode.\
-Open [http://localhost:3000](http://localhost:3000) to view it in your browser.
+Executa o app em modo de desenvolvimento.\
+Abra [http://localhost:3000](http://localhost:3000) para visualizá-lo no seu navegador.
 
-The page will reload when you make changes.\
-You may also see any lint errors in the console.
+A página recarregará automaticamente quando você fizer mudanças.\
+Você também verá erros de lint no console.
 
 ### `npm test`
 
-Launches the test runner in the interactive watch mode.\
-See the section about [running tests](https://facebook.github.io/create-react-app/docs/running-tests) for more information.
+Executa os testes usando Vitest.\
+Veja a seção sobre [running tests](https://vitest.dev/) para mais informações.
 
 ### `npm run build`
 
-Builds the app for production to the `build` folder.\
-It correctly bundles React in production mode and optimizes the build for the best performance.
+Compila o app para produção na pasta `build`.\
+Ele corretamente empacota o React em modo de produção e otimiza a build para melhor performance.
 
-The build is minified and the filenames include the hashes.\
-Your app is ready to be deployed!
+A build é minificada e os nomes dos arquivos incluem hashes.\
+Seu app está pronto para ser deployado!
 
-See the section about [deployment](https://facebook.github.io/create-react-app/docs/deployment) for more information.
+### `npm run preview`
 
-### `npm run eject`
+Visualiza a build de produção localmente.
 
-**Note: this is a one-way operation. Once you `eject`, you can't go back!**
+### `npm run lint`
 
-If you aren't satisfied with the build tool and configuration choices, you can `eject` at any time. This command will remove the single build dependency from your project.
+Executa o ESLint para verificar problemas no código.
 
-Instead, it will copy all the configuration files and the transitive dependencies (webpack, Babel, ESLint, etc) right into your project so you have full control over them. All of the commands except `eject` will still work, but they will point to the copied scripts so you can tweak them. At this point you're on your own.
+## Migração para Vite
 
-You don't have to ever use `eject`. The curated feature set is suitable for small and middle deployments, and you shouldn't feel obligated to use this feature. However we understand that this tool wouldn't be useful if you couldn't customize it when you are ready for it.
+Este projeto foi migrado do Create React App para Vite. As principais mudanças incluem:
+
+- Scripts atualizados (`npm run dev` ao invés de `npm start`)
+- Configuração do Vite (`vite.config.js`)
+- Vitest para testes ao invés de Jest
+- ESLint configurado para módulos ES
+- Variáveis de ambiente devem usar prefixo `VITE_`
+
+## Variáveis de Ambiente
+
+Para usar variáveis de ambiente, crie um arquivo `.env` baseado no `.env.example` e use o prefixo `VITE_` para as variáveis que devem ser acessíveis no frontend.
 
 ## Learn More
 
