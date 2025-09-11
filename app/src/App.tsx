@@ -16,7 +16,6 @@ import { AuthProvider } from './contexts/AuthContext';
 
 // Componentes
 import Layout from './components/Layout';
-import AuthGuard from './components/AuthGuard';
 
 // Páginas
 import Home from './pages/Home';
@@ -30,7 +29,6 @@ import Wishlist from './pages/Wishlist';
 import AdminDashboard from './pages/AdminDashboard';
 import NotFound from './pages/NotFound';
 import CustomAuthenticator from './components/CustomAuthenticator';
-import { AuthUser } from 'aws-amplify/auth';
 
 // Tema personalizado
 const theme = createTheme({
@@ -55,7 +53,6 @@ const AppContent: React.FC = () => {
     const location = useLocation();
     const isHomePage = location.pathname === '/';
 
-    // Render home page without authentication
     if (isHomePage) {
         return (
             <Routes>
@@ -66,7 +63,6 @@ const AppContent: React.FC = () => {
         );
     }
 
-    // Render protected routes with authentication
     return (
         <CustomAuthenticator>
             {({ signOut, user }) => (
