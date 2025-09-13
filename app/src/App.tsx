@@ -76,7 +76,6 @@ const AppContent: React.FC = () => {
                             <Route path="voos/selecionar/:flightId/:date" element={<FlightPurchase />} />
                             <Route path="wishlist" element={<Wishlist />} />
                             <Route path="admin" element={<AdminDashboard />} />
-                            <Route path="auth" element={<Auth />} />
                             <Route path="*" element={<NotFound />} />
                         </Route>
                     </Routes>
