@@ -1,8 +1,7 @@
 import React, { createContext, useContext, useEffect, useReducer, ReactNode } from 'react';
-import { signIn, signOut, getCurrentUser, fetchAuthSession, signUp, confirmSignUp, resendSignUpCode, fetchUserAttributes, AuthUser } from 'aws-amplify/auth';
-import { useAuthenticator } from '@aws-amplify/ui-react';
-import { authReducer, initialAuthState, AuthAction } from '../reducers/authReducer';
-import '../config/amplify'; // Importa a configuração do Amplify
+import { signIn, getCurrentUser, fetchAuthSession, signUp, confirmSignUp, resendSignUpCode, fetchUserAttributes, AuthUser } from 'aws-amplify/auth';
+import { authReducer, initialAuthState } from '../reducers/authReducer';
+import '../config/amplify';
 
 export interface User {
     id: string;
@@ -10,10 +9,10 @@ export interface User {
     email: string;
     isAdmin?: boolean;
     groups?: string[];
-    // Novos campos para atributos do Amplify
     username?: string;
     phoneNumber?: string;
     attributes?: Record<string, string>;
+    accessToken?: string;
 }
 
 export interface LoginCredentials {
@@ -103,7 +102,6 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, user, sign
         try {
             dispatch({ type: 'SET_LOADING', payload: true });
 
-            // Se temos um usuário do Authenticator, usar ele
             if (user) {
                 const session = await fetchAuthSession();
 
@@ -120,7 +118,10 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, user, sign
                         isAdmin: isUserAdmin,
                         groups: groups,
                         attributes: userAttributes || undefined,
+                        accessToken: session.tokens?.accessToken?.toString() || undefined,
                     };
+
+                    console.log({ userData })
 
                     // Se temos atributos, usar o nome real
                     if (userAttributes?.name) {
@@ -138,7 +139,6 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, user, sign
                 }
             }
 
-            // Fallback para o método original
             const currentUser = await getCurrentUser();
             const session = await fetchAuthSession();
 
@@ -153,11 +153,13 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, user, sign
                     username: currentUser.username,
                     isAdmin: isUserAdmin,
                     groups: groups,
+                    accessToken: session.tokens?.accessToken?.toString() || undefined,
                 };
 
                 dispatch({ type: 'AUTH_SUCCESS', payload: { user: userData, isAdmin: isUserAdmin } });
             }
         } catch (error) {
+            console.error('Error checking auth state:', error);
             // Usuário não está autenticado
             dispatch({ type: 'AUTH_ERROR' });
         } finally {
@@ -181,7 +183,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, user, sign
         } catch (error) {
 
             if ((error as Error).message === "There is already a signed in user.") {
-               // await checkAuthState();
+               await checkAuthState();
             } else {
                 throw error;
             }
