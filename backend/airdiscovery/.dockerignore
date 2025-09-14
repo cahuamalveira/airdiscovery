@@ -1,0 +1,87 @@
+# ================================
+# .dockerignore - Arquivo de segurança
+# Evita copiar arquivos desnecessários e sensíveis
+# ================================
+
+# Dependências de desenvolvimento
+node_modules
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Arquivos de build e cache
+dist
+build
+*.tgz
+.npm
+.cache
+
+# Arquivos de teste
+coverage
+.nyc_output
+test
+*.test.js
+*.spec.js
+**/*.test.ts
+**/*.spec.ts
+
+# Arquivos de configuração local
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Logs
+logs
+*.log
+
+# Arquivos do sistema
+.DS_Store
+Thumbs.db
+
+# Arquivos de controle de versão
+.git
+.gitignore
+.gitattributes
+
+# Arquivos de IDE
+.vscode
+.idea
+*.swp
+*.swo
+
+# Documentação
+README.md
+CHANGELOG.md
+LICENSE
+docs
+
+# Docker relacionados
+Dockerfile*
+docker-compose*
+.dockerignore
+
+# Arquivos temporários
+tmp
+temp
+*.tmp
+
+# Arquivos de backup
+*.bak
+*.backup
+
+# Arquivos de configuração de desenvolvimento
+jest.config.js
+eslint.config.mjs
+.eslintrc*
+.prettierrc*
+tsconfig.json
+tsconfig.build.json
+
+# Arquivos sensíveis que não devem ir para o container
+*.pem
+*.key
+*.crt
+*.p12
+secrets
