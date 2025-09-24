@@ -5,7 +5,14 @@ export interface StreamChunk {
   content: string;
   isComplete: boolean;
   sessionId: string;
-  metadata?: any;
+  metadata?: {
+    questionNumber?: number;
+    totalQuestions?: number;
+    interviewComplete?: boolean;
+    profileData?: UserProfile;
+    stopReason?: string;
+    error?: string;
+  };
 }
 
 export interface BedrockStreamResponse {
@@ -24,7 +31,7 @@ export interface InterviewConfig {
 
 export interface InterviewQuestion {
   id: string;
-  category: 'activities' | 'budget' | 'purpose' | 'hobbies' | 'followup';
+  category: 'origin' | 'activities' | 'budget' | 'purpose' | 'hobbies' | 'followup';
   question: string;
   followUpTriggers?: string[];
 }
@@ -41,6 +48,13 @@ export interface ChatSession {
   interviewComplete: boolean;
   createdAt: Date;
   updatedAt: Date;
+  // Campos diretos para DynamoDB
+  completedAt?: string;
+  readyForRecommendation: boolean;
+  recommendedDestination?: string;
+  questionsAsked: number;
+  totalQuestionsAvailable: number;
+  interviewEfficiency: number;
 }
 
 export interface ChatMessage {
@@ -50,9 +64,9 @@ export interface ChatMessage {
 }
 
 export interface UserProfile {
+  origin: string;
   activities: string[];
-  budget: string;
+  budget: number; // em centavos
   purpose: string;
   hobbies: string[];
-  additionalInfo: Record<string, any>;
 }

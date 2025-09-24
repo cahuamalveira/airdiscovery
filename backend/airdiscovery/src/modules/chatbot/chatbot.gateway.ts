@@ -12,19 +12,23 @@ import { Server, Socket } from 'socket.io';
 import { Logger, UseGuards, UnauthorizedException } from '@nestjs/common';
 import { ChatbotService } from './chatbot.service';
 import { ChatMessageDto, StartChatDto, MessageRole } from './dto/chat-message.dto';
-import { StreamChunk } from './interfaces/chat.interface';
+import { JsonStreamChunk } from './interfaces/json-response.interface';
 import { AuthenticatedRequest } from '../../common/middlewares/auth.middleware';
-import { jwtVerify, createRemoteJWKSet } from 'jose';
+import { jwtVerify, createRemoteJWKSet, decodeJwt } from 'jose';
 import { ConfigService } from '@nestjs/config';
 import { SocketAuthRepository } from './repositories/socket-auth.repository';
 
 /**
- * WebSocket Gateway para chat em tempo real com AWS Bedrock
+ * WebSocket Gateway para chat em tempo real com JSON estruturado
+ * 
+ * Esta implementação utiliza o chatbotService para trabalhar
+ * com respostas JSON estruturadas do LLM, eliminando a necessidade
+ * de parsing manual de strings.
  * 
  * Funcionalidades:
  * - Autenticação via JWT token
- * - Streaming de resposta em tempo real
- * - Gerenciamento de sessões de chat
+ * - Streaming de resposta com dados JSON estruturados
+ * - Gerenciamento de sessões de chat com estado estruturado
  * - Namespace isolado para chat (/chat)
  */
 @WebSocketGateway({
@@ -51,57 +55,55 @@ export class ChatbotGateway implements OnGatewayInit, OnGatewayConnection, OnGat
     if (!userPoolId) {
       throw new Error('USER_POOL_ID environment variable is required');
     }
-    
+
     const jwksUri = `https://cognito-idp.${region}.amazonaws.com/${userPoolId}/.well-known/jwks.json`;
     this.jwks = createRemoteJWKSet(new URL(jwksUri));
   }
 
   afterInit(server: Server) {
-    this.logger.log('WebSocket Gateway initialized');
+    this.logger.log('Chat WebSocket Gateway initialized with JSON support');
   }
 
-  async handleConnection(client: Socket) {
+  async handleConnection(client: Socket, ...args: any[]) {
     try {
-      // Autentica o cliente usando o token JWT
-      const token = this.extractTokenFromSocket(client);
-      if (!token) {
-        this.logger.warn(`Connection rejected: No token provided`);
-        client.disconnect();
-        return;
-      }
+      this.logger.log(`New JSON chat client connected: ${client.id}`);
 
-      const payload = await this.verifyToken(token);
-      const userId = payload.sub as string;
-      
-      await this.socketAuthRepository.setSocketAuth(client.id, { userId });
-      
-      this.logger.log(`Client connected: ${client.id} (User: ${userId})`);
-      
-      // Envia confirmação de conexão
+      // Permite conexão inicial sem autenticação
+      // A autenticação ocorrerá no evento startChat
       client.emit('connected', {
-        message: 'Successfully connected to chat',
-        userId: userId,
+        message: 'Connected to JSON chat server. Please authenticate to start chatting.',
+        socketId: client.id,
+        type: 'json-chat'
       });
 
     } catch (error) {
-      this.logger.error(`Authentication failed for client ${client.id}:`, error.message);
-      client.emit('error', { message: 'Authentication failed' });
-      client.disconnect();
+      this.logger.error(`Error during connection for JSON chat client ${client.id}:`, error.message);
+      client.disconnect(true);
     }
   }
 
   async handleDisconnect(client: Socket) {
-    const socketData = await this.socketAuthRepository.getSocketAuth(client.id);
-    if (socketData?.sessionId) {
-      // Opcionalmente, finalize a sessão de chat
-      await this.chatbotService.endChatSession(socketData.sessionId);
+    try {
+      this.logger.log(`JSON chat client disconnecting: ${client.id}`);
+
+      const socketData = await this.socketAuthRepository.getSocketAuth(client.id);
+      if (socketData?.sessionId) {
+        // Não deleta a sessão, apenas registra a desconexão
+        // A sessão permanece disponível por 30 dias para recuperação
+        this.logger.log(`Preserving JSON chat session for reconnection: ${socketData.sessionId}`);
+      }
+
+      await this.socketAuthRepository.removeSocketAuth(client.id);
+      this.logger.log(`JSON chat client disconnected and cleaned up: ${client.id}`);
+    } catch (error) {
+      this.logger.error(`Error during JSON chat client disconnect ${client.id}:`, error);
+      // Ainda tenta limpar
+      await this.socketAuthRepository.removeSocketAuth(client.id);
     }
-    await this.socketAuthRepository.removeSocketAuth(client.id);
-    this.logger.log(`Client disconnected: ${client.id}`);
   }
 
   /**
-   * Inicia uma nova sessão de chat
+   * Inicia uma nova sessão de chat com autenticação
    */
   @SubscribeMessage('startChat')
   async handleStartChat(
@@ -109,38 +111,75 @@ export class ChatbotGateway implements OnGatewayInit, OnGatewayConnection, OnGat
     @MessageBody() data: StartChatDto,
   ) {
     try {
-      const socketData = await this.socketAuthRepository.getSocketAuth(client.id);
+      this.logger.log(`Start JSON chat request from client: ${client.id}`);
+
+      // Autenticação do cliente
+      let socketData = await this.socketAuthRepository.getSocketAuth(client.id);
+
       if (!socketData) {
-        throw new UnauthorizedException('Not authenticated');
+        // Cliente não autenticado - autentica agora
+        const token = this.extractTokenFromSocket(client);
+        if (!token) {
+          this.logger.warn(`Authentication failed: No token provided for ${client.id}`);
+          client.emit('error', { message: 'Authentication token required' });
+          return;
+        }
+
+        // Verificação de token para desenvolvimento e produção
+        let payload;
+        if (this.configService.get('NODE_ENV') === 'development') {
+          try {
+            payload = await this.verifyToken(token);
+          } catch (error) {
+            this.logger.warn(`JWT verification failed in development mode, using fallback: ${error.message}`);
+            try {
+              payload = decodeJwt(token);
+              this.logger.debug('Using decoded token without verification for development');
+            } catch (decodeError) {
+              this.logger.error(`Token decode failed: ${decodeError.message}`);
+              client.emit('error', { message: 'Invalid token format' });
+              return;
+            }
+          }
+        } else {
+          payload = await this.verifyToken(token);
+        }
+
+        const userId = payload.sub as string;
+
+        // Armazena autenticação no repositório de socket
+        await this.socketAuthRepository.setSocketAuth(client.id, { userId });
+        socketData = await this.socketAuthRepository.getSocketAuth(client.id);
+
+        this.logger.log(`JSON chat client authenticated successfully: ${client.id} (User: ${userId})`);
       }
 
+      if (!socketData) {
+        throw new UnauthorizedException('Authentication failed');
+      }
+
+      console.log({ socketData, handleStartJsonChatData: data });
+
+      // Inicia sessão JSON
       const sessionId = await this.chatbotService.startChatSession(
         socketData.userId,
         data.sessionId,
       );
 
-      // Atualiza sessionId no Redis
+      // Atualiza sessionId no storage
       await this.socketAuthRepository.updateSocketSession(client.id, sessionId);
 
-      // Envia mensagem inicial do assistente
-      const initialMessage: StreamChunk = {
-        content: 'Olá! Sou seu assistente de viagem da AIR Discovery e estou aqui para te ajudar a encontrar o destino perfeito! 🌍✈️ Para começar, me conta: que tipo de atividades você mais gosta de fazer quando está de férias?',
-        isComplete: true,
-        sessionId,
-        metadata: {
-          questionNumber: 1,
-          totalQuestions: 8,
-          interviewComplete: false,
-        },
-      };
+      // Obtém mensagem inicial estruturada
+      const initialMessage = await this.chatbotService.getInitialMessage(sessionId);
 
+      // Envia resposta inicial com dados JSON estruturados
       client.emit('chatResponse', initialMessage);
 
-      this.logger.log(`Chat session started: ${sessionId} for user ${socketData.userId}`);
+      this.logger.log(`JSON chat session started: ${sessionId} for user ${socketData.userId}`);
 
     } catch (error) {
-      this.logger.error(`Error starting chat:`, error);
-      client.emit('error', { message: 'Failed to start chat session' });
+      this.logger.error(`Error starting JSON chat:`, error);
+      client.emit('error', { message: `Failed to start JSON chat session: ${error.message}` });
     }
   }
 
@@ -155,27 +194,27 @@ export class ChatbotGateway implements OnGatewayInit, OnGatewayConnection, OnGat
     try {
       const socketData = await this.socketAuthRepository.getSocketAuth(client.id);
       if (!socketData?.sessionId) {
-        throw new UnauthorizedException('No active chat session');
+        throw new UnauthorizedException('No active JSON chat session');
       }
 
-      this.logger.log(`Processing message from user ${socketData.userId}: ${message.content}`);
+      this.logger.log(`Processing JSON message from user ${socketData.userId}: ${message.content}`);
 
-      // Processa mensagem via streaming
+      // Processa mensagem com resposta completa (sem streaming de chunks)
       await this.chatbotService.processMessage(
         socketData.sessionId,
         {
           ...message,
           role: MessageRole.USER,
         },
-        (chunk: StreamChunk) => {
-          // Envia cada chunk em tempo real
-          client.emit('chatResponse', chunk);
+        (response: JsonStreamChunk) => {
+          // Envia resposta completa ou indicador de loading
+          client.emit('chatResponse', response);
         },
       );
 
     } catch (error) {
-      this.logger.error(`Error processing message:`, error);
-      client.emit('error', { message: 'Failed to process message' });
+      this.logger.error(`Error processing JSON message:`, error);
+      client.emit('error', { message: 'Failed to process JSON message' });
     }
   }
 
@@ -187,7 +226,7 @@ export class ChatbotGateway implements OnGatewayInit, OnGatewayConnection, OnGat
     try {
       const socketData = await this.socketAuthRepository.getSocketAuth(client.id);
       if (!socketData?.sessionId) {
-        client.emit('error', { message: 'No active chat session' });
+        client.emit('error', { message: 'No active JSON chat session' });
         return;
       }
 
@@ -196,16 +235,46 @@ export class ChatbotGateway implements OnGatewayInit, OnGatewayConnection, OnGat
       // Remove sessionId dos dados do socket no Redis
       await this.socketAuthRepository.removeSocketSession(client.id);
 
-      client.emit('chatEnded', { 
+      client.emit('chatEnded', {
         message: 'Chat session ended',
         profile: profile,
       });
 
-      this.logger.log(`Chat session ended: ${socketData.sessionId}`);
+      this.logger.log(`JSON chat session ended: ${socketData.sessionId}`);
 
     } catch (error) {
-      this.logger.error(`Error ending chat:`, error);
-      client.emit('error', { message: 'Failed to end chat session' });
+      this.logger.error(`Error ending JSON chat:`, error);
+      client.emit('error', { message: 'Failed to end JSON chat session' });
+    }
+  }
+
+  @SubscribeMessage('sessionInfo')
+  async handleSessionInfo(@ConnectedSocket() client: Socket) {
+    try {
+      const socketData = await this.socketAuthRepository.getSocketAuth(client.id);
+      if (!socketData?.sessionId) {
+        client.emit('sessionInfo', { hasActiveSession: false });
+        return;
+      }
+
+      const session = await this.chatbotService.getChatSession(socketData.sessionId);
+      if (!session) {
+        client.emit('sessionInfo', { hasActiveSession: false });
+        return;
+      }
+
+      client.emit('sessionInfo', {
+        hasActiveSession: true,
+        sessionId: session.sessionId,
+        currentStage: session.currentStage,
+        collectedData: session.collectedData,
+        isComplete: session.isComplete,
+        hasRecommendation: session.hasRecommendation,
+        messageCount: session.messages.length,
+      });
+    } catch (error) {
+      this.logger.error(`Error getting session info:`, error);
+      client.emit('error', { message: 'Failed to get session info' });
     }
   }
 
@@ -229,8 +298,11 @@ export class ChatbotGateway implements OnGatewayInit, OnGatewayConnection, OnGat
       client.emit('sessionStatus', {
         hasActiveSession: !!session,
         sessionId: socketData.sessionId,
-        interviewComplete: session?.interviewComplete || false,
+        currentStage: session?.currentStage || null,
+        isComplete: session?.isComplete || false,
+        hasRecommendation: session?.hasRecommendation || false,
         messageCount: session?.messages.length || 0,
+        collectedData: session?.collectedData || null,
       });
 
     } catch (error) {
@@ -244,11 +316,13 @@ export class ChatbotGateway implements OnGatewayInit, OnGatewayConnection, OnGat
    */
   private extractTokenFromSocket(client: Socket): string | null {
     // Tenta extrair do header Authorization
-    const authHeader = client.handshake.headers.authorization;
-    if (authHeader && authHeader.startsWith('Bearer ')) {
-      return authHeader.substring(7);
-    }
+    const authHeader = client.handshake.auth.token;
+    console.log('Auth Header:', authHeader);
+    console.log('Handshake Query:', client.handshake);
 
+    if (authHeader && typeof authHeader === 'string') {
+      return authHeader;
+    }
     // Tenta extrair dos query parameters
     const token = client.handshake.query.token;
     if (token && typeof token === 'string') {
@@ -263,28 +337,74 @@ export class ChatbotGateway implements OnGatewayInit, OnGatewayConnection, OnGat
    */
   private async verifyToken(token: string): Promise<any> {
     try {
-      const { payload } = await jwtVerify(token, this.jwks, {
-        issuer: `https://cognito-idp.${this.configService.get('AWS_REGION')}.amazonaws.com/${this.configService.get('USER_POOL_ID')}`,
-        audience: this.configService.get('USER_POOL_CLIENT_ID'),
-      });
+      let decodedPayload;
+      try {
+        decodedPayload = decodeJwt(token);
+        this.logger.debug(`Token decoded successfully. Token use: ${decodedPayload.token_use}, Has aud: ${!!decodedPayload.aud}, Has client_id: ${!!decodedPayload.client_id}`);
+      } catch (error) {
+        this.logger.error(`Failed to decode token: ${error.message}`);
+        throw new UnauthorizedException('Invalid JWT token format');
+      }
 
+      // Determina opções de verificação baseado no tipo de token
+      const verificationOptions: any = {
+        issuer: `https://cognito-idp.${this.configService.get('AWS_REGION')}.amazonaws.com/${this.configService.get('USER_POOL_ID')}`,
+      };
+
+      // Valida audience apenas se o token tem claim 'aud' (tipicamente ID tokens)
+      // Access tokens geralmente têm 'client_id' ao invés de 'aud'
+      if (decodedPayload.aud && this.configService.get('USER_POOL_CLIENT_ID')) {
+        verificationOptions.audience = this.configService.get('USER_POOL_CLIENT_ID');
+      }
+
+      this.logger.debug(`Attempting JWT verification with issuer: ${verificationOptions.issuer}`);
+      this.logger.debug(`Audience validation: ${verificationOptions.audience ? 'enabled' : 'disabled'}`);
+
+      // Executa verificação JWT única com opções apropriadas
+      const { payload } = await jwtVerify(token, this.jwks, verificationOptions);
+
+      this.logger.debug(`JWT verification successful for user: ${payload.sub}`);
       return payload;
     } catch (error) {
-      throw new UnauthorizedException('Invalid token');
+      this.logger.error(`JWT verification error details:`, {
+        message: error.message,
+        stack: error.stack,
+        region: this.configService.get('AWS_REGION'),
+        userPoolId: this.configService.get('USER_POOL_ID'),
+        jwksUrl: `https://cognito-idp.${this.configService.get('AWS_REGION')}.amazonaws.com/${this.configService.get('USER_POOL_ID')}/.well-known/jwks.json`
+      });
+
+      // Fornece mensagens de erro mais específicas
+      if (error.message.includes('Expected 200 OK')) {
+        throw new UnauthorizedException('Unable to fetch JWT keys from AWS Cognito. Please check network connectivity and configuration.');
+      } else if (error.message.includes('Invalid Compact JWS')) {
+        throw new UnauthorizedException('Invalid JWT token format - malformed token');
+      } else if (error.message.includes('signature verification failed')) {
+        throw new UnauthorizedException('Token signature verification failed');
+      } else if (error.message.includes('expired')) {
+        throw new UnauthorizedException('Token has expired');
+      } else if (error.message.includes('audience')) {
+        throw new UnauthorizedException('Token audience mismatch');
+      } else if (error.message.includes('issuer')) {
+        throw new UnauthorizedException('Token issuer mismatch');
+      }
+
+      throw new UnauthorizedException(`Token verification failed: ${error.message}`);
     }
   }
 
   /**
-   * Obtém estatísticas do gateway (para monitoramento)
+   * Obtém estatísticas do gateway JSON (para monitoramento)
    */
   async getConnectedClientsCount(): Promise<number> {
     return await this.socketAuthRepository.getConnectedSocketsCount();
   }
 
   /**
-   * Obtém número de sessões ativas
+   * Obtém número de sessões JSON ativas
    */
-  getActiveSessionsCount(): Promise<number> {
-    return this.chatbotService.getActiveSessionsCount();
+  async getActiveSessionsCount(): Promise<number> {
+    const stats = await this.chatbotService.getSessionStats();
+    return stats.active;
   }
 }

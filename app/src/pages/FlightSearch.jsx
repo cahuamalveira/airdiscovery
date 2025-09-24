@@ -256,7 +256,12 @@ function FlightSearch() {
       return;
     }
     
-    navigate(`/voos/selecionar/${flight.id}/${date ? format(date, 'yyyy-MM-dd') : 'any'}`);
+    navigate(`/checkout/${flight.id}/${date ? format(date, 'yyyy-MM-dd') : 'any'}`, {
+      state: {
+        flightDetails: flight,
+        selectedDate: date ? format(date, 'yyyy-MM-dd') : null
+      }
+    });
   };
   
   return (
@@ -391,7 +396,7 @@ function FlightSearch() {
                           variant="contained" 
                           onClick={() => handleSelectFlight(flight)}
                         >
-                          Selecionar
+                          Selecionar Voo
                         </Button>
                       </Box>
                     </CardContent>

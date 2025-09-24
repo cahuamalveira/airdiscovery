@@ -91,6 +91,9 @@ export class DestinationsService {
                 nonStop: queryDTO.nonStop,
                 max: 50 // Limita a busca para performance
             });
+            
+
+            console.log('🔍 Resultado da busca de destinos:', amadeusResponse);
 
             // Transforma a resposta do Amadeus no formato esperado
             const result: DestinationSearchResult = {
@@ -101,6 +104,7 @@ export class DestinationsService {
                 data: this.transformAmadeusFlights(amadeusResponse.data),
                 dictionaries: amadeusResponse.dictionaries
             };
+
 
             this.logger.log(`Encontrados ${result.meta.count} voos para ${queryDTO.origin} -> ${queryDTO.destination}`);
 

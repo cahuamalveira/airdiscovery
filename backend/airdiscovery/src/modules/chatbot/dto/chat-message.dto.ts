@@ -61,11 +61,11 @@ export class ChatSessionDto {
   
   @IsOptional()
   profileData?: {
+    origin?: string;
     activities?: string[];
-    budget?: string;
+    budget?: number; // Changed from string to number (cents)
     purpose?: string;
     hobbies?: string[];
-    additionalInfo?: any;
   };
 
   @IsOptional()
