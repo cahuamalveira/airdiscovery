@@ -6,6 +6,7 @@ import { FrontendSpaStack } from '../lib/stacks/frontend-spa-stack';
 import { AuthStack } from '../lib/stacks/auth-stack';
 import { DatabaseStack } from '../lib/stacks/database-stack';
 import { CacheStack } from '../lib/stacks/cache-stack';
+import { BedrockStack } from '../lib/stacks/bedrock-stack';
 
 const app = new cdk.App();
 
@@ -55,11 +56,17 @@ const cacheStack = new CacheStack(app, 'AirDiscoveryCacheStack', {
   vpc: vpcStack.vpc,
 });
 
+// 6. Bedrock Module (Amazon Nova Premier v1:0)
+const bedrockStack = new BedrockStack(app, 'AirDiscoveryBedrockStack', {
+  env,
+});
+
 // Dependencies
 authStack.addDependency(vpcStack);
 frontendStack.addDependency(vpcStack);
 frontendStack.addDependency(authStack);
 databaseStack.addDependency(vpcStack);
 cacheStack.addDependency(vpcStack);
+// bedrockStack não tem dependências - pode ser deployado independentemente
 
 app.synth();
