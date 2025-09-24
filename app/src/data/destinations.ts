@@ -1,5 +1,28 @@
 // Destinos disponíveis para escolha do usuário
-const destinations = [
+
+// Destinations interface
+export interface Destination {
+  id: string;
+  name: string;
+  image: string;
+  description: string;
+  attractions: {
+    athletic: Attraction[];
+    intellectual: Attraction[];
+    adventurous: Attraction[];
+    relaxed: Attraction[];
+
+    cultural: Attraction[];
+  };
+}
+
+export interface Attraction {
+  name: string;
+  image: string;
+  description: string;
+}
+
+const destinations: Destination[] = [
   {
     id: 'rio',
     name: 'Rio de Janeiro',

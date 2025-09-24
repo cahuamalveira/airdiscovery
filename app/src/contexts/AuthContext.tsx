@@ -103,60 +103,72 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, user, sign
             dispatch({ type: 'SET_LOADING', payload: true });
 
             if (user) {
-                const session = await fetchAuthSession();
+                // Para usuários já autenticados via Amplify Authenticator
+                try {
+                    const session = await fetchAuthSession({ forceRefresh: false });
 
-                if (session.tokens) {
-                    const groups = session.tokens.accessToken.payload['cognito:groups'] as string[] || [];
-                    const isUserAdmin = groups.includes('admins');
+                    if (session.tokens) {
+                        const groups = session.tokens.accessToken.payload['cognito:groups'] as string[] || [];
+                        const isUserAdmin = groups.includes('admins');
 
-                    // Melhorar o userData com informações dos atributos quando disponíveis
-                    const userData: User = {
-                        id: user.userId,
-                        email: user.signInDetails?.loginId || user.username || '',
-                        name: user.username, // Será atualizado com atributos depois
-                        username: user.username,
-                        isAdmin: isUserAdmin,
-                        groups: groups,
-                        attributes: userAttributes || undefined,
-                        accessToken: session.tokens?.accessToken?.toString() || undefined,
-                    };
+                        // Melhorar o userData com informações dos atributos quando disponíveis
+                        const userData: User = {
+                            id: user.userId,
+                            email: user.signInDetails?.loginId || user.username || '',
+                            name: user.username, // Será atualizado com atributos depois
+                            username: user.username,
+                            isAdmin: isUserAdmin,
+                            groups: groups,
+                            attributes: userAttributes || undefined,
+                            accessToken: session.tokens?.accessToken?.toString() || undefined,
+                        };
 
-                    console.log({ userData })
+                        console.log({ userData })
 
-                    // Se temos atributos, usar o nome real
-                    if (userAttributes?.name) {
-                        userData.name = userAttributes.name;
+                        // Se temos atributos, usar o nome real
+                        if (userAttributes?.name) {
+                            userData.name = userAttributes.name;
+                        }
+                        if (userAttributes?.email) {
+                            userData.email = userAttributes.email;
+                        }
+                        if (userAttributes?.phone_number) {
+                            userData.phoneNumber = userAttributes.phone_number;
+                        }
+
+                        dispatch({ type: 'AUTH_SUCCESS', payload: { user: userData, isAdmin: isUserAdmin } });
+                        return;
                     }
-                    if (userAttributes?.email) {
-                        userData.email = userAttributes.email;
-                    }
-                    if (userAttributes?.phone_number) {
-                        userData.phoneNumber = userAttributes.phone_number;
-                    }
-
-                    dispatch({ type: 'AUTH_SUCCESS', payload: { user: userData, isAdmin: isUserAdmin } });
-                    return;
+                } catch (sessionError) {
+                    console.warn('Error fetching session for existing user, trying getCurrentUser:', sessionError);
                 }
             }
 
-            const currentUser = await getCurrentUser();
-            const session = await fetchAuthSession();
+            // Fallback para getCurrentUser se fetchAuthSession falhar
+            try {
+                const currentUser = await getCurrentUser();
+                const session = await fetchAuthSession({ forceRefresh: false });
 
-            if (currentUser && session.tokens) {
-                const groups = session.tokens.accessToken.payload['cognito:groups'] as string[] || [];
-                const isUserAdmin = groups.includes('admins');
+                if (currentUser && session.tokens) {
+                    const groups = session.tokens.accessToken.payload['cognito:groups'] as string[] || [];
+                    const isUserAdmin = groups.includes('admins');
 
-                const userData: User = {
-                    id: currentUser.userId,
-                    email: currentUser.signInDetails?.loginId || '',
-                    name: currentUser.username,
-                    username: currentUser.username,
-                    isAdmin: isUserAdmin,
-                    groups: groups,
-                    accessToken: session.tokens?.accessToken?.toString() || undefined,
-                };
+                    const userData: User = {
+                        id: currentUser.userId,
+                        email: currentUser.signInDetails?.loginId || '',
+                        name: currentUser.username,
+                        username: currentUser.username,
+                        isAdmin: isUserAdmin,
+                        groups: groups,
+                        accessToken: session.tokens?.accessToken?.toString() || undefined,
+                    };
 
-                dispatch({ type: 'AUTH_SUCCESS', payload: { user: userData, isAdmin: isUserAdmin } });
+                    dispatch({ type: 'AUTH_SUCCESS', payload: { user: userData, isAdmin: isUserAdmin } });
+                }
+            } catch (currentUserError) {
+                console.warn('getCurrentUser failed:', currentUserError);
+                // Usuário não está autenticado
+                dispatch({ type: 'AUTH_ERROR' });
             }
         } catch (error) {
             console.error('Error checking auth state:', error);
@@ -256,10 +268,14 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, user, sign
 
     const getAccessToken = async (): Promise<string | null> => {
         try {
-            const session = await fetchAuthSession();
+            const session = await fetchAuthSession({ forceRefresh: false });
             return session.tokens?.accessToken?.toString() || null;
         } catch (error) {
             console.error('Error getting access token:', error);
+            // Tentar pegar do estado atual se disponível
+            if (state.user?.accessToken) {
+                return state.user.accessToken;
+            }
             return null;
         }
     };

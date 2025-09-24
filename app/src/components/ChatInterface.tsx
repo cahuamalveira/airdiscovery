@@ -13,6 +13,7 @@ const ChatInterface: React.FC = () => {
   const navigate = useNavigate();
 
   const handleOpenChat = () => {
+    // Navigate to chat session manager
     navigate('/chat');
   };
 

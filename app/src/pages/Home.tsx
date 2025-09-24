@@ -29,7 +29,7 @@ const Home: React.FC = () => {
         <Button 
           variant="contained" 
           size="large" 
-          onClick={() => navigate('/destinos')}
+          onClick={() => navigate('/chat')}
           startIcon={<ExploreIcon />}
           sx={{ mt: 2, mb: 6 }}
         >
