@@ -13,6 +13,7 @@ import {
     Avatar
 } from '@mui/material';
 import { AuthUser } from 'aws-amplify/auth';
+import ChatInterface from './ChatInterface';
 
 const Layout: React.FC<{ isAuthenticated: boolean, user: AuthUser | null, logout: ((() => void) | undefined) }> = ({ isAuthenticated, user, logout }) => {
     let isAdmin = false;
@@ -101,6 +102,10 @@ const Layout: React.FC<{ isAuthenticated: boolean, user: AuthUser | null, logout
             <Container sx={{ mt: 4, mb: 4 }}>
                 <Outlet />
             </Container>
+            
+            {/* Chat Interface - only show for authenticated users */}
+            {isAuthenticated && <ChatInterface />}
+            
             <Box component="footer" sx={{ bgcolor: 'background.paper', py: 6 }}>
                 <Container maxWidth="lg">
                     <Typography variant="body2" color="text.secondary" align="center">
