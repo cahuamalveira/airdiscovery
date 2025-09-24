@@ -7,6 +7,9 @@ import { FlightsModule } from './modules/flights/flights.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { DestinationsModule } from './modules/destinations/destinations.module';
 import { ChatbotModule } from './modules/chatbot/chatbot.module';
+import { BookingModule } from './modules/bookings/booking.module';
+import { PaymentModule } from './modules/payments/payment.module';
+import { MailModule } from './modules/mail/mail.module';
 import { AuthMiddleware } from './common/middlewares/auth.middleware';
 
 @Module({
@@ -34,7 +37,10 @@ import { AuthMiddleware } from './common/middlewares/auth.middleware';
     FlightsModule,
     AuthModule,
     DestinationsModule,
-    ChatbotModule
+    ChatbotModule,
+    BookingModule,
+    PaymentModule,
+    MailModule
   ],
   controllers: [AppController],
   providers: [AppService],

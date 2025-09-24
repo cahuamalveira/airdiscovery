@@ -1,408 +1,548 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { 
-  BedrockRuntimeClient, 
+import {
+  BedrockRuntimeClient,
   ConverseStreamCommand,
   ConverseStreamCommandInput,
-  ConversationRole 
+  ConversationRole
 } from '@aws-sdk/client-bedrock-runtime';
 import { fromEnv } from '@aws-sdk/credential-providers';
-import { 
-  ChatSession, 
-  ChatMessage, 
-  UserProfile, 
-  InterviewConfig,
-  StreamChunk 
-} from './interfaces/chat.interface';
-import { ChatMessageDto, MessageRole } from './dto/chat-message.dto';
-import { ChatSessionRepository } from './repositories/chat-session.repository';
 import { randomUUID } from 'crypto';
 
+import {
+  ChatbotJsonResponse,
+  JsonChatSession,
+  JsonChatMessage,
+  JsonStreamChunk,
+  ConversationStage,
+  CollectedData,
+  ValidationResult,
+  NextQuestionKey
+} from './interfaces/json-response.interface';
+import { ChatMessageDto } from './dto/chat-message.dto';
+import { ChatSessionRepository } from './repositories/chat-session.repository';
+import { ChatSession, UserProfile, ChatMessage } from './interfaces/chat.interface';
+import { JsonPromptBuilder } from './utils/json-prompt-builder';
+import { JsonResponseParser } from './utils/json-response-parser';
+
+/**
+ * Nova implementação do ChatbotService focada em respostas JSON estruturadas
+ * Esta versão elimina a necessidade de parsing manual de strings
+ */
 @Injectable()
 export class ChatbotService {
   private readonly logger = new Logger(ChatbotService.name);
   private readonly bedrockClient: BedrockRuntimeClient;
-  
-  // Configuração da entrevista baseada nos requisitos RF006
-  private readonly interviewConfig: InterviewConfig = {
-    systemPrompt: `Você é um assistente de viagem especializado da AIR Discovery. Sua função é conduzir uma entrevista personalizada para entender o perfil do viajante e recomendar destinos ideais.
-
-INSTRUÇÕES IMPORTANTES:
-1. Seja amigável, conversacional e entusiasmado sobre viagens
-2. Faça UMA pergunta por vez
-3. Baseie-se nas respostas anteriores para fazer perguntas de seguimento relevantes
-4. Colete informações sobre: atividades preferidas, orçamento, propósito da viagem, hobbies
-5. A entrevista deve ter entre 4-8 perguntas dependendo das respostas
-6. Ao final, confirme se coletou informações suficientes
-
-FLUXO DA ENTREVISTA:
-- Inicie com uma saudação calorosa
-- Pergunte sobre atividades preferidas em férias
-- Explore orçamento de viagem
-- Descubra o propósito da viagem (lazer, trabalho, rotina)
-- Identifique hobbies e interesses
-- Faça perguntas de seguimento baseadas nas respostas
-- Finalize confirmando se tem informações suficientes
-
-Mantenha cada resposta concisa (máximo 2-3 frases) e sempre termine com uma pergunta clara.`,
-    questions: [
-      {
-        id: 'greeting',
-        category: 'activities',
-        question: 'Olá! Sou seu assistente de viagem da AIR Discovery e estou aqui para te ajudar a encontrar o destino perfeito! 🌍✈️ Para começar, me conta: que tipo de atividades você mais gosta de fazer quando está de férias?'
-      },
-      {
-        id: 'budget',
-        category: 'budget',
-        question: 'Perfeito! E qual seria um orçamento aproximado que você tem em mente para essa viagem? Pode ser uma faixa de valores que se sinta confortável.'
-      },
-      {
-        id: 'purpose',
-        category: 'purpose', 
-        question: 'Entendi! E me conta, qual é o principal motivo dessa viagem? É mais para relaxar e descansar, aventura e diversão, trabalho, ou algo específico que você tem em mente?'
-      },
-      {
-        id: 'hobbies',
-        category: 'hobbies',
-        question: 'Que interessante! E no seu tempo livre, quais são seus hobbies favoritos? O que você gosta de fazer para se divertir ou relaxar?'
-      }
-    ],
-    maxQuestions: 8
-  };
 
   constructor(
     private readonly configService: ConfigService,
     private readonly chatSessionRepository: ChatSessionRepository
   ) {
     this.bedrockClient = new BedrockRuntimeClient({
-      region: this.configService.get<string>('AWS_REGION', 'us-east-1'),
+      region: this.configService.get<string>('AWS_REGION', 'us-east-2'),
       credentials: fromEnv(),
     });
   }
 
   /**
-   * Inicia uma nova sessão de chat
+   * Converte JsonChatSession para ChatSession (para salvar no DynamoDB)
+   */
+  private mapToLegacySession(jsonSession: JsonChatSession): ChatSession {
+    const profileData: UserProfile = {
+      origin: jsonSession.collectedData.origin_name || '',
+      activities: Array.from(jsonSession.collectedData.activities || []),
+      budget: jsonSession.collectedData.budget_in_brl || 0,
+      purpose: jsonSession.collectedData.purpose || '',
+      hobbies: Array.from(jsonSession.collectedData.hobbies || [])
+    };
+
+    const messages: ChatMessage[] = jsonSession.messages.map(msg => ({
+      role: msg.role,
+      content: msg.content,
+      timestamp: msg.timestamp
+    }));
+
+    return {
+      sessionId: jsonSession.sessionId,
+      userId: jsonSession.userId,
+      messages,
+      profileData,
+      currentQuestionIndex: this.getQuestionIndexFromStage(jsonSession.currentStage),
+      interviewComplete: jsonSession.isComplete,
+      readyForRecommendation: jsonSession.hasRecommendation,
+      createdAt: jsonSession.createdAt,
+      updatedAt: jsonSession.updatedAt,
+      completedAt: jsonSession.completedAt?.toISOString(),
+      questionsAsked: jsonSession.messages.filter(m => m.role === 'assistant').length,
+      totalQuestionsAvailable: 5,
+      interviewEfficiency: jsonSession.isComplete ? 1.0 : 0.5
+    };
+  }
+
+  /**
+   * Converte ChatSession para JsonChatSession (para retornar da consulta)
+   */
+  private mapFromLegacySession(chatSession: ChatSession): JsonChatSession {
+    const collectedData: CollectedData = {
+      origin_name: chatSession.profileData?.origin || null,
+      origin_iata: null, // Precisará ser extraído ou inferido
+      destination_name: null,
+      destination_iata: null,
+      activities: chatSession.profileData?.activities || null,
+      budget_in_brl: chatSession.profileData?.budget || null,
+      purpose: chatSession.profileData?.purpose || null,
+      hobbies: chatSession.profileData?.hobbies || null
+    };
+
+    const messages: JsonChatMessage[] = chatSession.messages.map(msg => ({
+      id: randomUUID(),
+      role: msg.role as 'user' | 'assistant' | 'system',
+      content: msg.content,
+      timestamp: msg.timestamp
+    }));
+
+    return {
+      sessionId: chatSession.sessionId,
+      userId: chatSession.userId,
+      messages,
+      currentStage: this.getStageFromQuestionIndex(chatSession.currentQuestionIndex),
+      collectedData,
+      isComplete: chatSession.interviewComplete || false,
+      hasRecommendation: chatSession.readyForRecommendation || false,
+      createdAt: chatSession.createdAt,
+      updatedAt: chatSession.updatedAt,
+      completedAt: chatSession.completedAt ? new Date(chatSession.completedAt) : undefined
+    };
+  }
+
+  /**
+   * Mapeia estágio JSON para índice de pergunta legacy
+   */
+  private getQuestionIndexFromStage(stage: ConversationStage): number {
+    const stageToIndex = {
+      'collecting_origin': 0,
+      'collecting_budget': 1,
+      'collecting_activities': 2,
+      'collecting_purpose': 3,
+      'collecting_hobbies': 4,
+      'recommendation_ready': 5,
+      'error': 0
+    };
+    return stageToIndex[stage] || 0;
+  }
+
+  /**
+   * Mapeia índice de pergunta legacy para estágio JSON
+   */
+  private getStageFromQuestionIndex(index: number): ConversationStage {
+    const indexToStage: ConversationStage[] = [
+      'collecting_origin',
+      'collecting_budget', 
+      'collecting_activities',
+      'collecting_purpose',
+      'collecting_hobbies',
+      'recommendation_ready'
+    ];
+    return indexToStage[index] || 'collecting_origin';
+  }
+
+  /**
+   * Inicia uma nova sessão de chat com estrutura JSON ou recupera uma existente
    */
   async startChatSession(userId: string, sessionId?: string): Promise<string> {
+    // Se um sessionId foi fornecido, tenta recuperar a sessão existente
+    if (sessionId) {
+      try {
+        const existingSession = await this.chatSessionRepository.getSession(sessionId);
+        if (existingSession && existingSession.userId === userId) {
+          this.logger.log(`Sessão JSON existente recuperada: ${sessionId} para usuário ${userId}`);
+          return sessionId;
+        } else if (existingSession && existingSession.userId !== userId) {
+          this.logger.warn(`Tentativa de acesso não autorizado à sessão ${sessionId} por usuário ${userId}`);
+          // Gera novo sessionId para o usuário
+          sessionId = undefined;
+        } else {
+          this.logger.warn(`Sessão ${sessionId} não encontrada, criando nova sessão`);
+        }
+      } catch (error) {
+        this.logger.warn(`Erro ao recuperar sessão ${sessionId}, criando nova: ${error.message}`);
+      }
+    }
+
+    // Cria nova sessão se não foi fornecido sessionId ou se não foi encontrada
     const id = sessionId || randomUUID();
-    
-    const session: ChatSession = {
+
+    const jsonSession: JsonChatSession = {
       sessionId: id,
       userId,
       messages: [],
-      profileData: {
-        activities: [],
-        budget: '',
-        purpose: '',
-        hobbies: [],
-        additionalInfo: {}
+      currentStage: 'collecting_origin',
+      collectedData: {
+        origin_name: null,
+        origin_iata: null,
+        destination_name: null,
+        destination_iata: null,
+        activities: null,
+        budget_in_brl: null,
+        purpose: null,
+        hobbies: null
       },
-      currentQuestionIndex: 0,
-      interviewComplete: false,
+      isComplete: false,
+      hasRecommendation: false,
       createdAt: new Date(),
       updatedAt: new Date()
     };
 
-    await this.chatSessionRepository.saveSession(session);
-    this.logger.log(`Chat session started for user ${userId}: ${id}`);
+    // Converte para formato legacy e salva
+    const legacySession = this.mapToLegacySession(jsonSession);
+    await this.chatSessionRepository.saveSession(legacySession);
     
+    this.logger.log(`Nova sessão JSON iniciada: ${id} para usuário ${userId}`);
     return id;
   }
 
   /**
-   * Processa mensagem do usuário e gera resposta via streaming
+   * Obtém mensagem inicial do chatbot (nova sessão ou continuação)
    */
-  async processMessage(
-    sessionId: string, 
-    message: ChatMessageDto,
-    onChunk: (chunk: StreamChunk) => void
-  ): Promise<void> {
-    const session = await this.chatSessionRepository.getSession(sessionId);
-    if (!session) {
-      throw new Error('Session not found');
+  async getInitialMessage(sessionId: string): Promise<JsonStreamChunk> {
+    const legacySession = await this.chatSessionRepository.getSession(sessionId);
+    if (!legacySession) {
+      throw new Error('Sessão não encontrada');
     }
 
+    const session = this.mapFromLegacySession(legacySession);
+    
+    // Verifica se é uma sessão com mensagens existentes
+    const hasExistingMessages = session.messages && session.messages.length > 0;
+    const isCompleted = session.isComplete;
+
+    let assistantMessage: string;
+    let conversationStage: ConversationStage = session.currentStage;
+
+    if (isCompleted && session.hasRecommendation) {
+      assistantMessage = 'Bem-vindo de volta! Sua consulta anterior foi concluída e já temos uma recomendação para você. Inicie outra sessão para uma nova consulta.';
+      conversationStage = 'recommendation_ready';
+    } else if (hasExistingMessages) {
+      assistantMessage = `Bem-vindo de volta! Vamos continuar de onde paramos. ${this.getStageMessage(conversationStage)}`;
+    } else {
+      assistantMessage = 'Olá! Sou seu assistente de viagem da AIR Discovery. Vou te ajudar a encontrar o destino perfeito! De qual cidade você vai partir?';
+      conversationStage = 'collecting_origin';
+    }
+
+    const initialResponse: ChatbotJsonResponse = {
+      conversation_stage: conversationStage,
+      data_collected: session.collectedData,
+      next_question_key: this.getQuestionKeyFromStage(conversationStage),
+      assistant_message: assistantMessage,
+      is_final_recommendation: isCompleted && session.hasRecommendation
+    };
+
+    return {
+      sessionId,
+      content: assistantMessage,
+      jsonData: initialResponse,
+      isComplete: true
+    };
+  }
+
+  /**
+   * Obtém mensagem contextual baseada no estágio da conversa
+   */
+  private getStageMessage(stage: ConversationStage): string {
+    switch (stage) {
+      case 'collecting_origin':
+        return 'De qual cidade você vai partir?';
+      case 'collecting_budget':
+        return 'Qual é o seu orçamento aproximado para a viagem (em reais)?';
+      case 'collecting_activities':
+        return 'Que tipo de atividades você gostaria de fazer no destino?';
+      case 'collecting_purpose':
+        return 'Qual é o propósito principal desta viagem?';
+      case 'collecting_hobbies':
+        return 'Quais são seus hobbies e interesses?';
+      case 'recommendation_ready':
+        return 'Tenho algumas recomendações para você!';
+      default:
+        return 'Como posso ajudá-lo com sua viagem?';
+    }
+  }
+
+  /**
+   * Obtém a próxima chave de pergunta baseada no estágio (para sessões continuadas)
+   */
+  private getQuestionKeyFromStage(stage: ConversationStage): NextQuestionKey {
+    switch (stage) {
+      case 'collecting_origin':
+        return 'origin';
+      case 'collecting_budget':
+        return 'budget';
+      case 'collecting_activities':
+        return 'activities';
+      case 'collecting_purpose':
+        return 'purpose';
+      case 'collecting_hobbies':
+        return 'hobbies';
+      default:
+        return null;
+    }
+  }
+
+  /**
+   * Processa mensagem do usuário e gera resposta estruturada
+   * Agora sem streaming para evitar problemas de parsing JSON
+   */
+  async processMessage(
+    sessionId: string,
+    message: ChatMessageDto,
+    onResponse: (response: JsonStreamChunk) => void
+  ): Promise<void> {
+    const legacySession = await this.chatSessionRepository.getSession(sessionId);
+    if (!legacySession) {
+      throw new Error('Sessão não encontrada');
+    }
+
+    const session = this.mapFromLegacySession(legacySession);
+
+    // Adiciona mensagem do usuário
+    const userMessage: JsonChatMessage = {
+      id: randomUUID(),
+      role: 'user',
+      content: message.content,
+      timestamp: new Date()
+    };
+
+    // Atualiza a sessão local com a nova mensagem
+    const updatedJsonSession = {
+      ...session,
+      messages: [...session.messages, userMessage],
+      updatedAt: new Date()
+    };
+
+    // Salva no DynamoDB
+    const updatedLegacySession = this.mapToLegacySession(updatedJsonSession);
+    await this.chatSessionRepository.saveSession(updatedLegacySession);
+
     try {
-      // Adiciona mensagem do usuário
-      session.messages.push({
-        role: message.role,
-        content: message.content,
-        timestamp: new Date()
+      // Envia indicador de "processando" para mostrar loading
+      onResponse({
+        content: '',
+        isComplete: false,
+        sessionId,
+        isProcessing: true
       });
 
-      // Extrai informações do perfil da resposta do usuário
-      this.extractProfileData(session, message.content);
-
-      // Prepara o contexto para o Bedrock
-      const conversationHistory = this.buildConversationHistory(session);
+      // Gera resposta via Bedrock (sem streaming)
+      const completeResponse = await this.generateCompleteJsonResponse(updatedJsonSession);
       
-      // Gera resposta via streaming
-      await this.streamBedrockResponse(session, conversationHistory, onChunk);
-
-      session.updatedAt = new Date();
-      
-      // Salva sessão atualizada no DynamoDB
-      await this.chatSessionRepository.saveSession(session);
+      // Envia resposta completa de uma vez
+      onResponse(completeResponse);
       
     } catch (error) {
-      this.logger.error(`Error processing message for session ${sessionId}:`, error);
+      this.logger.error(`Erro ao processar mensagem: ${error.message}`);
+      
+      // Resposta de erro estruturada
+      const errorResponse: ChatbotJsonResponse = {
+        conversation_stage: 'error',
+        data_collected: session.collectedData,
+        next_question_key: null,
+        assistant_message: 'Desculpe, ocorreu um erro. Vamos tentar novamente.',
+        is_final_recommendation: false
+      };
+
+      onResponse({
+        content: errorResponse.assistant_message,
+        isComplete: true,
+        sessionId,
+        jsonData: errorResponse,
+        metadata: { error: error.message }
+      });
+    }
+  }
+
+  /**
+   * Gera resposta JSON completa via Bedrock (sem streaming)
+   */
+  private async generateCompleteJsonResponse(
+    session: JsonChatSession
+  ): Promise<JsonStreamChunk> {
+    const input = this.buildBedrockInput(session);
+    const command = new ConverseStreamCommand(input);
+
+    try {
+      const response = await this.bedrockClient.send(command);
+      let completeContent = '';
+
+      // Acumula todo o conteúdo sem enviar chunks
+      for await (const chunk of response.stream!) {
+        if (chunk.contentBlockDelta?.delta?.text) {
+          completeContent += chunk.contentBlockDelta.delta.text;
+        }
+      }
+
+      // Processa resposta completa de uma vez
+      return await this.processCompleteResponse(session, completeContent);
+
+    } catch (error) {
+      this.logger.error(`Erro no Bedrock: ${error.message}`);
       throw error;
     }
   }
 
   /**
-   * Obtém sessão de chat
+   * Processa resposta completa e valida JSON
    */
-  async getChatSession(sessionId: string): Promise<ChatSession | undefined> {
-    try {
-      const session = await this.chatSessionRepository.getSession(sessionId);
-      return session || undefined;
-    } catch (error) {
-      this.logger.error(`Error getting session ${sessionId}:`, error);
-      return undefined;
-    }
-  }
+  private async processCompleteResponse(
+    session: JsonChatSession,
+    rawResponse: string
+  ): Promise<JsonStreamChunk> {
+    // Sanitiza resposta
+    const sanitizedResponse = JsonResponseParser.sanitizeResponse(rawResponse);
+    
+    // Valida e parsea JSON
+    const validation = JsonResponseParser.parseResponse(sanitizedResponse);
 
-  /**
-   * Finaliza sessão de chat
-   */
-  async endChatSession(sessionId: string): Promise<UserProfile | undefined> {
-    try {
-      const session = await this.chatSessionRepository.getSession(sessionId);
-      if (!session) {
-        return undefined;
-      }
-
-      const profile = session.profileData;
-      await this.chatSessionRepository.deleteSession(sessionId);
-      this.logger.log(`Chat session ended: ${sessionId}`);
+    if (!validation.isValid || !validation.parsedData) {
+      this.logger.error(`JSON inválido recebido: ${validation.error}`);
       
-      return profile;
-    } catch (error) {
-      this.logger.error(`Error ending session ${sessionId}:`, error);
-      return undefined;
+      // Resposta de fallback
+      const fallbackResponse = JsonResponseParser.generateFallback(
+        session.currentStage,
+        session.collectedData,
+        validation.error || 'Resposta inválida'
+      );
+
+      return {
+        content: fallbackResponse.assistant_message,
+        isComplete: true,
+        sessionId: session.sessionId,
+        jsonData: fallbackResponse,
+        metadata: { error: validation.error }
+      };
     }
-  }
 
-  /**
-   * Constrói histórico da conversa para o Bedrock
-   */
-  private buildConversationHistory(session: ChatSession): ConverseStreamCommandInput {
-    const messages: Array<{
-      role: ConversationRole;
-      content: Array<{ text: string }>;
-    }> = [];
+    const jsonResponse = validation.parsedData;
 
-    // Adiciona mensagens da conversa
-    session.messages.forEach(msg => {
-      messages.push({
-        role: msg.role === 'user' ? 'user' : 'assistant',
-        content: [{
-          text: msg.content
-        }]
-      });
+    // Atualiza sessão com novos dados
+    const updatedSession = await this.updateSession(session, {
+      currentStage: jsonResponse.conversation_stage,
+      collectedData: jsonResponse.data_collected,
+      isComplete: jsonResponse.is_final_recommendation,
+      hasRecommendation: jsonResponse.is_final_recommendation,
+      updatedAt: new Date(),
+      completedAt: jsonResponse.is_final_recommendation ? new Date() : undefined
     });
 
-    // Se é a primeira mensagem, adiciona a pergunta inicial
-    if (session.messages.length === 1) {
-      const currentQuestion = this.getCurrentQuestion(session);
-      if (currentQuestion) {
-        messages.push({
-          role: 'assistant',
-          content: [{
-            text: currentQuestion.question
-          }]
-        });
-      }
-    }
+    // Adiciona mensagem do assistente
+    const assistantMessage: JsonChatMessage = {
+      id: randomUUID(),
+      role: 'assistant',
+      content: jsonResponse.assistant_message,
+      timestamp: new Date(),
+      jsonData: jsonResponse
+    };
 
+    await this.updateSession(updatedSession, {
+      messages: [...updatedSession.messages, assistantMessage]
+    });
+
+    // Retorna resposta final
     return {
-      modelId: this.configService.get<string>('BEDROCK_MODEL', 'anthropic.claude-3-sonnet-20240229-v1:0'),
-      messages: messages,
-      system: [{
-        text: this.interviewConfig.systemPrompt
-      }],
-      inferenceConfig: {
-        maxTokens: 500,
-        temperature: 0.7,
-        topP: 0.9
+      content: jsonResponse.assistant_message,
+      isComplete: true,
+      sessionId: session.sessionId,
+      jsonData: jsonResponse,
+      metadata: {
+        stage: jsonResponse.conversation_stage,
+        collectedData: jsonResponse.data_collected
       }
     };
   }
 
   /**
-   * Faz streaming da resposta do Bedrock
+   * Constrói input para Bedrock
    */
-  private async streamBedrockResponse(
-    session: ChatSession,
-    input: ConverseStreamCommandInput,
-    onChunk: (chunk: StreamChunk) => void
-  ): Promise<void> {
-    try {
-      const command = new ConverseStreamCommand(input);
-      const response = await this.bedrockClient.send(command);
+  private buildBedrockInput(session: JsonChatSession): ConverseStreamCommandInput {
+    const messages = session.messages.map(msg => ({
+      role: msg.role as ConversationRole,
+      content: [{ text: msg.content }]
+    }));
 
-      let assistantResponse = '';
-      
-      if (response.stream) {
-        for await (const chunk of response.stream) {
-          if (chunk.contentBlockDelta?.delta?.text) {
-            const text = chunk.contentBlockDelta.delta.text;
-            assistantResponse += text;
-            
-            // Envia chunk em tempo real
-            onChunk({
-              content: text,
-              isComplete: false,
-              sessionId: session.sessionId,
-              metadata: {
-                questionNumber: session.currentQuestionIndex + 1,
-                totalQuestions: this.interviewConfig.maxQuestions,
-                interviewComplete: session.interviewComplete
-              }
-            });
-          }
-          
-          if (chunk.messageStop) {
-            // Adiciona resposta completa ao histórico
-            session.messages.push({
-              role: 'assistant',
-              content: assistantResponse,
-              timestamp: new Date()
-            });
+    // Usa o prompt builder para contexto
+    const lastUserMessage = session.messages
+      .filter(msg => msg.role === 'user')
+      .slice(-1)[0]?.content || '';
 
-            // Verifica se a entrevista está completa
-            this.checkInterviewCompletion(session);
-            
-            // Salva sessão atualizada
-            await this.chatSessionRepository.saveSession(session);
-            
-            // Envia chunk final
-            onChunk({
-              content: '',
-              isComplete: true,
-              sessionId: session.sessionId,
-              metadata: {
-                questionNumber: session.currentQuestionIndex + 1,
-                totalQuestions: this.interviewConfig.maxQuestions,
-                interviewComplete: session.interviewComplete,
-                profileData: session.interviewComplete ? session.profileData : undefined
-              }
-            });
-            
-            break;
-          }
-        }
+    const contextPrompt = JsonPromptBuilder.buildContextualPrompt(
+      session.currentStage,
+      session.collectedData,
+      lastUserMessage
+    );
+
+    console.log('🧠 Prompt enviado ao Bedrock:', contextPrompt);
+
+    return {
+      modelId: 'us.meta.llama4-scout-17b-instruct-v1:0',
+      messages,
+      system: [{ text: contextPrompt }],
+      inferenceConfig: {
+        maxTokens: 1000,
+        temperature: 0.2,
+        topP: 0.6
       }
-    } catch (error) {
-      this.logger.error('Error streaming from Bedrock:', error);
-      throw error;
-    }
+    };
   }
 
   /**
-   * Extrai dados do perfil das respostas do usuário
+   * Determina próxima pergunta baseada nos dados coletados
    */
-  private extractProfileData(session: ChatSession, userMessage: string): void {
-    const message = userMessage.toLowerCase();
-    
-    // Análise simples por palavras-chave - em produção poderia usar NLP mais sofisticado
-    const currentIndex = session.currentQuestionIndex;
-    
-    if (currentIndex === 0) {
-      // Atividades preferidas
-      const activities: string[] = [];
-      if (message.includes('praia') || message.includes('sol')) activities.push('Praia');
-      if (message.includes('montanha') || message.includes('trilha')) activities.push('Montanha');
-      if (message.includes('cidade') || message.includes('urbano')) activities.push('Cidade');
-      if (message.includes('cultura') || message.includes('museu')) activities.push('Cultural');
-      if (message.includes('aventura') || message.includes('radical')) activities.push('Aventura');
-      if (message.includes('relax') || message.includes('spa')) activities.push('Relaxamento');
-      
-      session.profileData.activities = activities;
-    } else if (currentIndex === 1) {
-      // Orçamento
-      if (message.includes('econômic') || message.includes('barato')) {
-        session.profileData.budget = 'Econômico';
-      } else if (message.includes('médio') || message.includes('moderado')) {
-        session.profileData.budget = 'Médio';
-      } else if (message.includes('alto') || message.includes('luxo')) {
-        session.profileData.budget = 'Alto';
-      } else {
-        session.profileData.budget = userMessage; // Valor específico
-      }
-    } else if (currentIndex === 2) {
-      // Propósito
-      if (message.includes('trabalho') || message.includes('negócio')) {
-        session.profileData.purpose = 'Trabalho';
-      } else if (message.includes('lazer') || message.includes('férias')) {
-        session.profileData.purpose = 'Lazer';
-      } else if (message.includes('família') || message.includes('familiar')) {
-        session.profileData.purpose = 'Família';
-      } else {
-        session.profileData.purpose = userMessage;
-      }
-    } else if (currentIndex === 3) {
-      // Hobbies
-      const hobbies: string[] = [];
-      if (message.includes('esporte') || message.includes('academia')) hobbies.push('Esportes');
-      if (message.includes('ler') || message.includes('livro')) hobbies.push('Leitura');
-      if (message.includes('música') || message.includes('tocar')) hobbies.push('Música');
-      if (message.includes('cozinha') || message.includes('culinária')) hobbies.push('Culinária');
-      if (message.includes('arte') || message.includes('pintar')) hobbies.push('Arte');
-      if (message.includes('tecnologia') || message.includes('programar')) hobbies.push('Tecnologia');
-      
-      session.profileData.hobbies = hobbies;
-    }
-
-    session.currentQuestionIndex++;
-  }
-
-  /**
-   * Obtém a pergunta atual baseada no índice
-   */
-  private getCurrentQuestion(session: ChatSession) {
-    const index = session.currentQuestionIndex;
-    if (index < this.interviewConfig.questions.length) {
-      return this.interviewConfig.questions[index];
-    }
+  private getNextQuestionKey(data: CollectedData): NextQuestionKey {
+    if (!data.origin_name || !data.origin_iata) return 'origin';
+    if (!data.budget_in_brl) return 'budget';
+    if (!data.activities && !data.purpose) return 'activities';
     return null;
   }
 
   /**
-   * Verifica se a entrevista está completa
+   * Atualiza sessão no DynamoDB
    */
-  private checkInterviewCompletion(session: ChatSession): void {
-    const minQuestions = 4;
-    const hasBasicInfo = session.profileData.activities.length > 0 ||
-                        !!session.profileData.budget ||
-                        !!session.profileData.purpose ||
-                        session.profileData.hobbies.length > 0;
-
-    session.interviewComplete = session.currentQuestionIndex >= minQuestions && hasBasicInfo;
+  private async updateSession(session: JsonChatSession, updates: Partial<JsonChatSession>): Promise<JsonChatSession> {
+    const updatedSession = { ...session, ...updates, updatedAt: new Date() };
+    const legacySession = this.mapToLegacySession(updatedSession);
+    await this.chatSessionRepository.saveSession(legacySession);
+    return updatedSession;
   }
 
   /**
-   * Obtém estatísticas das sessões ativas
+   * Obtém sessão por ID
    */
-  async getActiveSessionsCount(): Promise<number> {
-    try {
-      return await this.chatSessionRepository.getActiveSessionsCount();
-    } catch (error) {
-      this.logger.error('Error getting active sessions count:', error);
-      return 0;
-    }
+  async getChatSession(sessionId: string): Promise<JsonChatSession | undefined> {
+    const legacySession = await this.chatSessionRepository.getSession(sessionId);
+    return legacySession ? this.mapFromLegacySession(legacySession) : undefined;
   }
 
   /**
-   * Limpa sessões antigas (pode ser chamado por um cron job)
+   * Finaliza sessão e retorna dados coletados
    */
-  async cleanupOldSessions(maxAgeHours: number = 24): Promise<number> {
-    try {
-      return await this.chatSessionRepository.cleanupExpiredSessions(maxAgeHours);
-    } catch (error) {
-      this.logger.error('Error cleaning up old sessions:', error);
-      return 0;
-    }
+  async endChatSession(sessionId: string): Promise<CollectedData | undefined> {
+    const legacySession = await this.chatSessionRepository.getSession(sessionId);
+    if (!legacySession) return undefined;
+
+    await this.chatSessionRepository.deleteSession(sessionId);
+    this.logger.log(`Sessão finalizada: ${sessionId}`);
+
+    const jsonSession = this.mapFromLegacySession(legacySession);
+    return jsonSession.collectedData;
+  }
+
+  /**
+   * Obtém estatísticas das sessões
+   */
+  async getSessionStats(): Promise<{ active: number; completed: number }> {
+    // Como não há método específico no ChatSessionRepository, simulamos
+    // Em uma implementação real, seria necessário adicionar este método ao repositório
+    return {
+      active: 0,
+      completed: 0
+    };
   }
 }

@@ -185,7 +185,6 @@ export class AuthMiddleware implements NestMiddleware {
       // Access tokens usually have 'client_id' instead of 'aud'
       if (decodedPayload.aud && process.env.USER_POOL_CLIENT_ID) {
         verificationOptions.audience = process.env.USER_POOL_CLIENT_ID;
-      } else {
       }
 
       // Perform single JWT verification with appropriate options
