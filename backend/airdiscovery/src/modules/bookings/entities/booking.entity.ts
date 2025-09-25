@@ -1,196 +1,69 @@
-import { 
-  Entity, 
-  PrimaryGeneratedColumn, 
-  Column, 
-  CreateDateColumn, 
-  UpdateDateColumn,
-  Index
-} from 'typeorm';
-
-/**
- * Status da reserva
- * - pending: Reserva criada, aguardando dados do passageiro
- * - awaiting_payment: Dados preenchidos, aguardando pagamento
- * - paid: Pagamento confirmado
- * - cancelled: Reserva cancelada
- */
+import { Entity, PrimaryGeneratedColumn, Column, ManyToOne, OneToMany, JoinColumn, CreateDateColumn, UpdateDateColumn } from 'typeorm';
+// Booking status values
 export enum BookingStatus {
-  PENDING = 'pending',
-  AWAITING_PAYMENT = 'awaiting_payment',
-  PAID = 'paid',
-  CANCELLED = 'cancelled',
+  PENDING = 'PENDING',
+  AWAITING_PAYMENT = 'AWAITING_PAYMENT',
+  PAID = 'PAID',
+  CANCELLED = 'CANCELLED',
 }
+import { Customer } from '../../customers/entities/customer.entity';
+import { Flight } from '../../flights/entities/flight.entity';
+import { Passenger } from './passenger.entity';
+import { Payment } from './payment.entity';
 
 /**
- * Dados do passageiro armazenados em formato JSON
- */
-export interface PassengerData {
-  firstName: string;
-  lastName: string;
-  email: string;
-  phone: string;
-  document: string;
-  birthDate: string;
-}
-
-/**
- * Detalhes do voo armazenados em formato JSON (dados do Amadeus API)
- */
-export interface FlightDetails {
-  id: string;
-  itineraries: Array<{
-    duration: string;
-    segments: Array<{
-      departure: {
-        iataCode: string;
-        dateTime: string;
-      };
-      arrival: {
-        iataCode: string;
-        dateTime: string;
-      };
-      carrierCode: string;
-      aircraft?: {
-        code: string;
-      };
-    }>;
-  }>;
-  price: {
-    currency: string;
-    total: string;
-    base: string;
-    grandTotal: string;
-  };
-  validatingAirlineCodes: string[];
-  numberOfBookableSeats: number;
-}
-
-/**
- * Entidade Booking - Representa uma reserva de voo
- * Segue os padrões da AirDiscovery: Clean Architecture + TypeORM + NestJS
+ * Booking entity - relational model for flight reservations.
  */
 @Entity('bookings')
-@Index(['userId', 'status'])
-@Index(['preferenceId'], { unique: true, where: 'preference_id IS NOT NULL' })
 export class Booking {
-  /**
-   * ID único da reserva (UUID)
-   */
-  @PrimaryGeneratedColumn('uuid')
-  id: string;
+  // Use UUID to prevent IDOR
+  @PrimaryGeneratedColumn('uuid', { name: 'booking_id' })
+  booking_id: string;
 
-  /**
-   * ID do voo (pode ser do Amadeus ou sistema interno)
-   */
-  @Column({ type: 'varchar', length: 255 })
-  @Index()
-  flightId: string;
+  @ManyToOne(() => Customer, customer => customer.bookings, { onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'customer_id' })
+  customer: Customer;
 
-  /**
-   * ID do usuário que fez a reserva (obtido do JWT)
-   */
-  @Column({ type: 'varchar', length: 255 })
-  @Index()
-  userId: string;
+  @ManyToOne(() => Flight, flight => flight.bookings, { onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'flight_id' })
+  flight: Flight;
 
-  /**
-   * Status atual da reserva
-   */
-  @Column({
-    type: 'enum',
-    enum: BookingStatus,
-    default: BookingStatus.PENDING,
-  })
-  @Index()
+  @Column({ name: 'booking_date', type: 'date', default: () => 'CURRENT_DATE' })
+  booking_date: string;
+
+  @Column({ name: 'total_amount', type: 'decimal', precision: 10, scale: 2 })
+  total_amount: number;
+
+  @Column({ name: 'status', type: 'enum', enum: BookingStatus })
   status: BookingStatus;
 
-  /**
-   * Dados do passageiro em formato JSON
-   */
-  @Column({ type: 'jsonb' })
-  passengerData: PassengerData;
+  @OneToMany(() => Passenger, passenger => passenger.booking, { cascade: true })
+  passengers: Passenger[];
 
-  /**
-   * Detalhes completos do voo em formato JSON
-   */
-  @Column({ type: 'jsonb' })
-  flightDetails: FlightDetails;
+  @OneToMany(() => Payment, payment => payment.booking, { cascade: true })
+  payments: Payment[];
 
-  /**
-   * Valor total da reserva (em centavos para evitar problemas de float)
-   */
-  @Column({ type: 'bigint' })
-  totalAmount: number;
-
-  /**
-   * Moeda da reserva (ISO 4217)
-   */
-  @Column({ type: 'varchar', length: 3, default: 'BRL' })
-  currency: string;
-
-  /**
-   * ID da preferência do Mercado Pago (para rastreamento do pagamento)
-   */
-  @Column({ type: 'varchar', length: 255, nullable: true })
-  @Index()
-  preferenceId?: string;
-
-  /**
-   * Dados adicionais do pagamento (JSON flexível para diferentes providers)
-   */
-  @Column({ type: 'jsonb', nullable: true })
-  paymentData?: {
-    provider: 'mercadopago';
-    paymentId?: string;
-    transactionId?: string;
-    pixCode?: string;
-    qrCodeBase64?: string;
-    expirationDate?: string;
-  };
-
-  /**
-   * Observações ou notas adicionais
-   */
-  @Column({ type: 'text', nullable: true })
+  // Optional notes for cancellation or comments
+  @Column({ name: 'notes', type: 'text', nullable: true })
   notes?: string;
 
-  /**
-   * Data de criação da reserva
-   */
-  @CreateDateColumn({ type: 'timestamptz' })
+  // Mercado Pago preference ID if applicable
+  @Column({ name: 'preference_id', type: 'varchar', length: 100, nullable: true })
+  preferenceId?: string;
+
+  // Timestamps
+  @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 
-  /**
-   * Data da última atualização
-   */
-  @UpdateDateColumn({ type: 'timestamptz' })
+  @UpdateDateColumn({ name: 'updated_at' })
   updatedAt: Date;
 
-  /**
-   * Método para verificar se a reserva está em status final
-   */
-  isFinalStatus(): boolean {
-    return this.status === BookingStatus.PAID || this.status === BookingStatus.CANCELLED;
-  }
-
-  /**
-   * Método para verificar se a reserva pode ser paga
-   */
+  // Business logic helpers
   canBePaid(): boolean {
     return this.status === BookingStatus.AWAITING_PAYMENT;
   }
 
-  /**
-   * Método para obter o nome completo do passageiro
-   */
-  getPassengerFullName(): string {
-    return `${this.passengerData.firstName} ${this.passengerData.lastName}`;
-  }
-
-  /**
-   * Método para calcular o valor total em reais (convertendo de centavos)
-   */
-  getTotalAmountInReais(): number {
-    return this.totalAmount / 100;
+  isFinalStatus(): boolean {
+    return [BookingStatus.PAID, BookingStatus.CANCELLED].includes(this.status as BookingStatus);
   }
 }

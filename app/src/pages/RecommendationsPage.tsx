@@ -28,6 +28,7 @@ import {
   useFlightSearch, 
   SearchDestinationParams
 } from '../hooks/useFlightSearch';
+import { useFlightSelection } from '../hooks/useFlightSelection';
 
 /**
  * Página de Recomendações de Voos - Versão com React Query
@@ -69,7 +70,17 @@ function RecommendationsPage() {
     isRefetching 
   } = useFlightSearch(flightSearchParams);
 
-  const flightOffers = useMemo(() => flightData?.data || [], [flightData]);
+  // Hook para seleção de voos
+  const { selectFlight, loading: selectingFlight } = useFlightSelection();
+
+  const flightOffers = useMemo(() => {
+    const offers = flightData?.data || [];
+    console.log('FlightData received:', flightData);
+    console.log('Flight offers array:', offers);
+    console.log('First offer:', offers[0]);
+    console.log('First offer id:', offers[0]?.id);
+    return offers;
+  }, [flightData]);
   const dictionaries = useMemo(() => flightData?.dictionaries, [flightData]);
 
   const formatCurrency = (amount: number): string => {
@@ -81,6 +92,46 @@ function RecommendationsPage() {
 
   const getCityName = (code: string): string => {
     return LATIN_AMERICA_AIRPORTS[code as keyof typeof LATIN_AMERICA_AIRPORTS] || code;
+  };
+
+  // Handler para seleção de voo
+  const handleFlightSelection = async (offer: any) => {
+    try {
+      console.log('Selecting flight with offer:', offer);
+      console.log('Offer id:', offer?.id);
+      console.log('Offer type:', typeof offer);
+      console.log('Offer keys:', Object.keys(offer || {}));
+      
+      // Validate offer before proceeding
+      if (!offer) {
+        console.error('Offer is null or undefined');
+        return;
+      }
+      
+      if (!offer.id) {
+        console.error('Offer does not have an id property');
+        console.error('Offer structure:', offer);
+        return;
+      }
+      
+      const flightSelectionResult = await selectFlight(offer);
+      console.log('Flight selection result:', flightSelectionResult);
+      const { flightId } = flightSelectionResult;
+      console.log('Extracted flightId:', flightId);
+      console.log('FlightId type:', typeof flightId);
+      console.log('FlightId is falsy:', !flightId);
+      
+      if (!flightId) {
+        console.error('No flightId received from selectFlight');
+        return;
+      }
+      
+      // Navegar para checkout com o flightId interno
+      navigate(`/checkout/${flightId}`);
+    } catch (error) {
+      console.error('Erro ao selecionar voo:', error);
+      // TODO: Mostrar toast de erro para o usuário
+    }
   };
 
   // Validar parâmetros obrigatórios
@@ -288,18 +339,13 @@ function RecommendationsPage() {
                   <Button
                     variant="contained"
                     color="primary"
-                    onClick={() => navigate('/checkout/' + offer.id, {
-                      state: {
-                        flightOffer: offer,
-                        dictionaries,
-                        flightSearchParams
-                      }
-                    })}
+                    onClick={() => handleFlightSelection(offer)}
                     startIcon={<AirlineSeatReclineNormal />}
                     size="large"
                     sx={{ minWidth: 160 }}
+                    disabled={selectingFlight}
                   >
-                    Selecionar Voo
+                    {selectingFlight ? 'Selecionando...' : 'Selecionar Voo'}
                   </Button>
                 </Box>
               </CardContent>

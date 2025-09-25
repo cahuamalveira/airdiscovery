@@ -8,7 +8,7 @@ import { AuthModule } from './modules/auth/auth.module';
 import { DestinationsModule } from './modules/destinations/destinations.module';
 import { ChatbotModule } from './modules/chatbot/chatbot.module';
 import { BookingModule } from './modules/bookings/booking.module';
-import { PaymentModule } from './modules/payments/payment.module';
+import { StripeModule } from './modules/stripe/stripe.module';
 import { MailModule } from './modules/mail/mail.module';
 import { AuthMiddleware } from './common/middlewares/auth.middleware';
 
@@ -26,11 +26,12 @@ import { AuthMiddleware } from './common/middlewares/auth.middleware';
         username: configService.get<string>('DB_USERNAME'),
         password: configService.get<string>('DB_PASSWORD'),
         database: configService.get<string>('DB_NAME'),
-        entities: [__dirname, '/**/*.entity{.ts,.js}'],
-        synchronize: true,
+        entities: [__dirname + '/**/*.entity.js'],
+        synchronize: true, // Enable synchronize temporarily to create tables
         ssl: {
           rejectUnauthorized: false,
-        }
+        },
+        logging: ['query', 'error'],
        }),
        inject: [ConfigService]
     }),
@@ -39,7 +40,7 @@ import { AuthMiddleware } from './common/middlewares/auth.middleware';
     DestinationsModule,
     ChatbotModule,
     BookingModule,
-    PaymentModule,
+    StripeModule,
     MailModule
   ],
   controllers: [AppController],

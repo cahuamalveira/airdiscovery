@@ -1,5 +1,6 @@
 import * as cdk from 'aws-cdk-lib';
 import * as cognito from 'aws-cdk-lib/aws-cognito';
+import * as iam from 'aws-cdk-lib/aws-iam';
 import { Construct } from 'constructs';
 
 export interface AuthProps extends cdk.StackProps {
@@ -13,6 +14,8 @@ export class AuthStack extends cdk.Stack {
   public readonly identityPool: cognito.CfnIdentityPool;
   public readonly usersGroup: cognito.CfnUserPoolGroup;
   public readonly adminsGroup: cognito.CfnUserPoolGroup;
+  public readonly authenticatedRole: iam.Role;
+  public readonly unauthenticatedRole: iam.Role;
 
   constructor(scope: Construct, id: string, props?: AuthProps) {
     super(scope, id, props);
@@ -95,6 +98,46 @@ export class AuthStack extends cdk.Stack {
       }],
     });
 
+    // Create IAM roles for authenticated and unauthenticated users
+    this.authenticatedRole = new iam.Role(this, 'CognitoAuthenticatedRole', {
+      assumedBy: new iam.FederatedPrincipal(
+        'cognito-identity.amazonaws.com',
+        {
+          StringEquals: {
+            'cognito-identity.amazonaws.com:aud': this.identityPool.ref,
+          },
+          'ForAnyValue:StringLike': {
+            'cognito-identity.amazonaws.com:amr': 'authenticated',
+          },
+        },
+        'sts:AssumeRoleWithWebIdentity'
+      ),
+    });
+
+    this.unauthenticatedRole = new iam.Role(this, 'CognitoUnauthenticatedRole', {
+      assumedBy: new iam.FederatedPrincipal(
+        'cognito-identity.amazonaws.com',
+        {
+          StringEquals: {
+            'cognito-identity.amazonaws.com:aud': this.identityPool.ref,
+          },
+          'ForAnyValue:StringLike': {
+            'cognito-identity.amazonaws.com:amr': 'unauthenticated',
+          },
+        },
+        'sts:AssumeRoleWithWebIdentity'
+      ),
+    });
+
+    // Attach roles to identity pool
+    new cognito.CfnIdentityPoolRoleAttachment(this, 'IdentityPoolRoleAttachment', {
+      identityPoolId: this.identityPool.ref,
+      roles: {
+        authenticated: this.authenticatedRole.roleArn,
+        unauthenticated: this.unauthenticatedRole.roleArn,
+      },
+    });
+
     // User Groups
     this.usersGroup = new cognito.CfnUserPoolGroup(this, 'UsersGroup', {
       userPoolId: this.userPool.userPoolId,
@@ -139,6 +182,18 @@ export class AuthStack extends cdk.Stack {
       value: this.region,
       description: 'AWS Region',
       exportName: 'AirDiscoveryRegion',
+    });
+
+    new cdk.CfnOutput(this, 'AuthenticatedRoleArn', {
+      value: this.authenticatedRole.roleArn,
+      description: 'Cognito Authenticated Role ARN',
+      exportName: 'AirDiscoveryAuthenticatedRoleArn',
+    });
+
+    new cdk.CfnOutput(this, 'UnauthenticatedRoleArn', {
+      value: this.unauthenticatedRole.roleArn,
+      description: 'Cognito Unauthenticated Role ARN',
+      exportName: 'AirDiscoveryUnauthenticatedRoleArn',
     });
   }
 }

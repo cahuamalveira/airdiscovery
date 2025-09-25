@@ -1,8 +1,13 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { Booking } from './entities/booking.entity';
 import { BookingService } from './booking.service';
 import { BookingController } from './booking.controller';
+import { Passenger } from './entities/passenger.entity';
+import { Payment } from './entities/payment.entity';
+import { Customer } from '../customers/entities/customer.entity';
+import { StripeModule } from '../stripe/stripe.module';
+import { Flight } from '../flights/entities/flight.entity';
 
 /**
  * BookingModule - Módulo de reservas
@@ -17,7 +22,7 @@ import { BookingController } from './booking.controller';
  */
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Booking])
+    TypeOrmModule.forFeature([Booking, Passenger, Payment, Customer, Flight]),
   ],
   controllers: [BookingController],
   providers: [BookingService],

@@ -21,18 +21,25 @@ import Layout from './components/Layout';
 
 // Páginas
 import Home from './pages/Home';
-import DestinationSelection from './pages/DestinationSelection';
+// import DestinationSelection from './pages/DestinationSelection';
 import RecommendationsPage from './pages/RecommendationsPage';
 import ProfileQuestions from './pages/ProfileQuestions';
 import Results from './pages/Results';
 import FlightSearch from './pages/FlightSearch';
 import FlightPurchase from './pages/FlightPurchase';
+import CheckoutPage from './pages/CheckoutPage';
+import ConfirmationPage from './pages/ConfirmationPage';
 import Wishlist from './pages/Wishlist';
-import ChatPage from './pages/SimpleChatPage';
+import ChatSessionManager from './pages/ChatSessionManager';
 import AdminDashboard from './pages/AdminDashboard';
 import NotFound from './pages/NotFound';
 import CustomAuthenticator from './components/CustomAuthenticator';
 import ChatPageV2WithErrorBoundary from './pages/ChatPageV2';
+import { loadStripe } from '@stripe/stripe-js';
+import { Elements } from '@stripe/react-stripe-js';
+
+// Configurar Stripe
+const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY);
 
 // Tema personalizado
 const theme = createTheme({
@@ -55,23 +62,23 @@ const theme = createTheme({
 
 // Configurar QueryClient com configurações otimizadas
 const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: {
-      staleTime: 5 * 60 * 1000, // 5 minutos
-      gcTime: 10 * 60 * 1000, // 10 minutos (antes era cacheTime)
-      retry: (failureCount, error) => {
-        // Não tentar novamente para erros 4xx
-        if (error && typeof error === 'object' && 'status' in error) {
-          const status = (error as any).status;
-          if (status >= 400 && status < 500) {
-            return false;
-          }
-        }
-        return failureCount < 3;
-      },
-      refetchOnWindowFocus: false,
+    defaultOptions: {
+        queries: {
+            staleTime: 5 * 60 * 1000, // 5 minutos
+            gcTime: 10 * 60 * 1000, // 10 minutos (antes era cacheTime)
+            retry: (failureCount, error) => {
+                // Não tentar novamente para erros 4xx
+                if (error && typeof error === 'object' && 'status' in error) {
+                    const status = (error as any).status;
+                    if (status >= 400 && status < 500) {
+                        return false;
+                    }
+                }
+                return failureCount < 3;
+            },
+            refetchOnWindowFocus: false,
+        },
     },
-  },
 });
 
 const AppContent: React.FC = () => {
@@ -94,14 +101,15 @@ const AppContent: React.FC = () => {
                 <AuthProvider signOut={signOut} user={user}>
                     <Routes>
                         <Route path="/" element={<Layout isAuthenticated={!!user} user={user} logout={signOut} />}>
-                            <Route path="destinos" element={<DestinationSelection />} />
-                            <Route path="recomendacoes" element={<RecommendationsPage />} />
-                            <Route path="destinos/:destinationId/perguntas" element={<ProfileQuestions />} />
+                            <Route path="recomendacoes/:origin/:destination" element={<RecommendationsPage />} />
                             <Route path="resultados/:destinationId/:profileType" element={<Results />} />
                             <Route path="voos" element={<FlightSearch />} />
+                            <Route path="checkout/:flightId" element={<CheckoutPage />} />
+                            <Route path="confirmation/:bookingId" element={<ConfirmationPage />} />
                             <Route path="voos/selecionar/:flightId/:date" element={<FlightPurchase />} />
                             <Route path="wishlist" element={<Wishlist />} />
-                            <Route path="chat" element={<ChatPageV2WithErrorBoundary />} />
+                            <Route path="chat" element={<ChatSessionManager />} />
+                            <Route path="chat/session/:sessionId" element={<ChatPageV2WithErrorBoundary />} />
                             <Route path="admin" element={<AdminDashboard />} />
                             <Route path="*" element={<NotFound />} />
                         </Route>
@@ -119,7 +127,9 @@ const App: React.FC = () => {
                 <CssBaseline />
                 <LocalizationProvider dateAdapter={AdapterDateFns} adapterLocale={ptBR}>
                     <BrowserRouter>
-                        <AppContent />
+                        <Elements stripe={stripePromise}>
+                            <AppContent />
+                        </Elements>
                     </BrowserRouter>
                 </LocalizationProvider>
             </ThemeProvider>

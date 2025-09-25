@@ -1,12 +1,11 @@
-import { IsString, IsEmail, IsUUID, IsOptional, IsNotEmpty, IsEnum, IsObject, ValidateNested, IsNumber, Min, Max, Matches } from 'class-validator';
+import { IsString, IsEmail, IsUUID, IsOptional, IsNotEmpty, IsEnum, IsObject, ValidateNested, IsNumber, Min, Max, Matches, IsArray, ArrayMinSize, IsDateString } from 'class-validator';
 import { Type, Transform } from 'class-transformer';
 import { BookingStatus } from '../entities/booking.entity';
-import type { PassengerData, FlightDetails } from '../entities/booking.entity';
 
 /**
  * DTO para dados do passageiro
  */
-export class PassengerDataDto implements PassengerData {
+export class PassengerDataDto {
   @IsString()
   @IsNotEmpty()
   @Matches(/^[a-zA-ZÀ-ÿ\s]+$/, {
@@ -48,6 +47,39 @@ export class PassengerDataDto implements PassengerData {
 }
 
 /**
+ * DTO para informações de voo mínimas
+ */
+export class FlightInfoDto {
+  @IsString()
+  @IsNotEmpty()
+  flightNumber: string;
+
+  @IsString()
+  @IsNotEmpty()
+  amadeusOfferId: string;
+
+  @IsString()
+  @IsNotEmpty()
+  departureCode: string;
+
+  @IsString()
+  @IsNotEmpty()
+  arrivalCode: string;
+
+  @IsDateString()
+  departureDateTime: string;
+
+  @IsDateString()
+  arrivalDateTime: string;
+
+  @IsNumber()
+  priceTotal: number;
+
+  @IsString()
+  currency: string;
+}
+
+/**
  * DTO para criação de reserva
  */
 export class CreateBookingDto {
@@ -55,13 +87,11 @@ export class CreateBookingDto {
   @IsNotEmpty()
   flightId: string;
 
-  @ValidateNested()
+  @ValidateNested({ each: true })
   @Type(() => PassengerDataDto)
-  @IsObject()
-  passengerData: PassengerDataDto;
-
-  @IsObject()
-  flightDetails: FlightDetails;
+  @IsArray()
+  @ArrayMinSize(1)
+  passengers: PassengerDataDto[];
 
   @IsNumber()
   @Min(1, { message: 'Valor total deve ser maior que zero' })
@@ -83,6 +113,13 @@ export class CreateBookingDto {
   @IsString()
   @IsOptional()
   notes?: string;
+
+  // DEPRECATED: Use flightId instead. Flight should be created via POST /flights/from-offer first
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => FlightInfoDto)
+  @IsObject()
+  flightInfo?: FlightInfoDto;
 }
 
 /**
@@ -147,13 +184,13 @@ export class BookingResponseDto {
   flightId: string;
   userId: string;
   status: BookingStatus;
-  passengerData: PassengerDataDto;
-  flightDetails: FlightDetails;
+  passengers: PassengerDataDto[];
   totalAmount: number;
   currency: string;
-  preferenceId?: string;
-  paymentData?: object;
+  payments?: object[]; // optional payment records
   notes?: string;
-  createdAt: Date;
-  updatedAt: Date;
+  createdAt?: Date;
+  updatedAt?: Date;
+  // Flight information for email templates
+  flightInfo?: FlightInfoDto;
 }

@@ -1,8 +1,12 @@
 import { Injectable, NotFoundException, BadRequestException, ConflictException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, FindManyOptions } from 'typeorm';
+import { Repository, FindManyOptions, DataSource } from 'typeorm';
 import { Booking, BookingStatus } from './entities/booking.entity';
-import { CreateBookingDto, UpdateBookingDto, BookingQueryDto, BookingResponseDto } from './dto/booking.dto';
+import { StripeService } from '../stripe/stripe.service';
+import { Passenger } from './entities/passenger.entity';
+import { Flight } from '../flights/entities/flight.entity';
+import { Customer } from '../customers/entities/customer.entity';
+import { CreateBookingDto, UpdateBookingDto, BookingQueryDto, BookingResponseDto, PassengerDataDto } from './dto/booking.dto';
 
 /**
  * BookingService - Serviço para gerenciar reservas de voos
@@ -18,47 +22,94 @@ import { CreateBookingDto, UpdateBookingDto, BookingQueryDto, BookingResponseDto
 @Injectable()
 export class BookingService {
   constructor(
+    private readonly dataSource: DataSource,
     @InjectRepository(Booking)
     private readonly bookingRepository: Repository<Booking>,
-  ) {}
+    @InjectRepository(Flight)
+    private readonly flightRepository: Repository<Flight>,
+    @InjectRepository(Customer)
+    private readonly customerRepository: Repository<Customer>,
+  ) { }
 
   /**
    * Criar uma nova reserva
    */
   async create(createBookingDto: CreateBookingDto, userId: string): Promise<BookingResponseDto> {
-    try {
-      // Validar dados de entrada
-      await this.validateBookingData(createBookingDto);
+    // Validar dados de entrada
+    await this.validateBookingData(createBookingDto);
 
-      // Criar entidade de reserva
-      const booking = this.bookingRepository.create({
-        ...createBookingDto,
-        userId,
-        status: BookingStatus.PENDING,
+    // Buscar Flight existente pelo ID interno (obrigatório)
+    if (!createBookingDto.flightId) {
+      throw new BadRequestException('flightId is required. Flight must be created first via POST /flights/from-offer');
+    }
+
+    const flightEntity = await this.flightRepository.findOne({ where: { id: createBookingDto.flightId } });
+    if (!flightEntity) {
+      throw new BadRequestException(`Flight with ID ${createBookingDto.flightId} not found`);
+    }
+
+    // Buscar ou criar Customer baseado no userId (UUID do Cognito)
+    let customerEntity = await this.customerRepository.findOne({ where: { id: userId } });
+
+    if (!customerEntity) {
+      // Criar customer usando dados do primeiro passageiro (assumindo que é o usuário)
+      const primaryPassenger = createBookingDto.passengers[0];
+      if (!primaryPassenger) {
+        throw new BadRequestException('At least one passenger is required to create a customer');
+      }
+
+      customerEntity = this.customerRepository.create({
+        id: userId, // Use Cognito UUID
+        name: `${primaryPassenger.firstName} ${primaryPassenger.lastName}`,
+        email: primaryPassenger.email,
+        phone: primaryPassenger.phone || undefined, // Convert null to undefined
       });
 
-      // Salvar no banco de dados
-      const savedBooking = await this.bookingRepository.save(booking);
-
-      // Atualizar status para awaiting_payment após salvar
-      savedBooking.status = BookingStatus.AWAITING_PAYMENT;
-      const updatedBooking = await this.bookingRepository.save(savedBooking);
-
-      return this.toResponseDto(updatedBooking);
-    } catch (error) {
-      if (error instanceof BadRequestException) {
-        throw error;
-      }
-      throw new BadRequestException('Erro ao criar reserva: ' + error.message);
+      customerEntity = await this.customerRepository.save(customerEntity);
     }
+
+    // Mapear passageiros
+    const passengerEntities: Passenger[] = createBookingDto.passengers.map(p => {
+      const passenger = new Passenger();
+      passenger.first_name = p.firstName;
+      passenger.last_name = p.lastName;
+      passenger.passport_number = p.document;
+      passenger.email = p.email;
+      passenger.phone = p.phone;
+      passenger.document = p.document;
+      passenger.birth_date = p.birthDate;
+      return passenger;
+    });
+
+    // Criar e salvar reserva inicial
+    const booking = this.bookingRepository.create({
+      customer: customerEntity, // Use the full customer entity
+      flight: flightEntity, // Use the full flight entity
+      total_amount: createBookingDto.totalAmount,
+      status: BookingStatus.PENDING,
+      passengers: passengerEntities,
+    });
+    let saved = await this.bookingRepository.save(booking);
+
+    // Atualizar status para awaiting_payment
+    saved.status = BookingStatus.AWAITING_PAYMENT;
+    saved = await this.bookingRepository.save(saved);
+
+    // Reload with relations for proper DTO conversion
+    const bookingWithRelations = await this.bookingRepository.findOne({
+      where: { booking_id: saved.booking_id },
+      relations: ['customer', 'flight', 'passengers', 'payments']
+    });
+
+    return this.toResponseDto(bookingWithRelations!);
   }
 
   /**
    * Buscar reserva por ID
    */
-  async findById(id: string, userId?: string): Promise<BookingResponseDto> {
-    const whereConditions: any = { id };
-    
+  async findById(booking_id: string, userId?: string): Promise<BookingResponseDto> {
+    const whereConditions: any = { booking_id };
+
     // Se userId for fornecido, filtrar apenas reservas do usuário
     if (userId) {
       whereConditions.userId = userId;
@@ -66,10 +117,11 @@ export class BookingService {
 
     const booking = await this.bookingRepository.findOne({
       where: whereConditions,
+      relations: ['customer', 'flight', 'passengers', 'payments']
     });
 
     if (!booking) {
-      throw new NotFoundException(`Reserva com ID ${id} não encontrada`);
+      throw new NotFoundException(`Reserva com ID ${booking_id} não encontrada`);
     }
 
     return this.toResponseDto(booking);
@@ -83,18 +135,18 @@ export class BookingService {
     userId?: string,
   ): Promise<{ data: BookingResponseDto[]; total: number; page: number; limit: number }> {
     const { page = 1, limit = 10, status, flightId } = queryDto;
-    
+
     // Construir condições de filtro
     const whereConditions: any = {};
-    
+
     if (userId) {
       whereConditions.userId = userId;
     }
-    
+
     if (status) {
       whereConditions.status = status;
     }
-    
+
     if (flightId) {
       whereConditions.flightId = flightId;
     }
@@ -134,8 +186,12 @@ export class BookingService {
       this.validateStatusTransition(booking.status, updateBookingDto.status);
     }
 
-    // Aplicar atualizações
-    Object.assign(booking, updateBookingDto);
+    // Aplicar atualizações, exceto dados de pagamento que são via entidade Payment
+    const { paymentData, ...restDto } = updateBookingDto as any;
+    Object.assign(booking, restDto);
+    if (paymentData) {
+      // TODO: Persistir payments via Payment entity
+    }
 
     // Salvar alterações
     const updatedBooking = await this.bookingRepository.save(booking);
@@ -153,27 +209,32 @@ export class BookingService {
       transactionId?: string;
     },
   ): Promise<BookingResponseDto> {
+    // Confirm payment and persist via StripeService
+    const booking = await this.findBookingEntity(bookingId);
+    if (!booking.canBePaid()) {
+      throw new BadRequestException(`Reserva não pode ser paga. Status atual: ${booking.status}`);
+    }
+    booking.status = BookingStatus.PAID;
+    const updatedBooking = await this.bookingRepository.save(booking);
+    // Delegate saving payment details
+    return this.toResponseDto(updatedBooking);
+  }
+
+  async updateBookingToAwaitingPayment(bookingId: string, preferenceId: string): Promise<void> {
     const booking = await this.findBookingEntity(bookingId);
 
-    // Validar se a reserva pode ser paga
-    if (!booking.canBePaid()) {
-      throw new BadRequestException(
-        `Reserva não pode ser paga. Status atual: ${booking.status}`
-      );
+    
+    if (booking.status !== BookingStatus.PENDING && booking.status !== BookingStatus.AWAITING_PAYMENT) {
+      throw new ConflictException(`Booking status must be PENDING to update to AWAITING_PAYMENT. Current status: ${booking.status}`);
     }
 
-    // Atualizar status e dados do pagamento
-    booking.status = BookingStatus.PAID;
-    booking.paymentData = {
-      ...booking.paymentData,
-      provider: 'mercadopago',
-      paymentId: paymentData.paymentId,
-      transactionId: paymentData.transactionId,
-    };
+    if (booking.status === BookingStatus.AWAITING_PAYMENT && booking.preferenceId === preferenceId) {
+      return; // No update needed
+    }
 
-    const updatedBooking = await this.bookingRepository.save(booking);
-
-    return this.toResponseDto(updatedBooking);
+    booking.status = BookingStatus.AWAITING_PAYMENT;
+    booking.preferenceId = preferenceId;
+    await this.bookingRepository.save(booking);
   }
 
   /**
@@ -191,10 +252,10 @@ export class BookingService {
 
     // Atualizar status e adicionar observação sobre o cancelamento
     booking.status = BookingStatus.CANCELLED;
-    
+
     if (reason) {
-      booking.notes = booking.notes 
-        ? `${booking.notes}\n\nCancelamento: ${reason}` 
+      booking.notes = booking.notes
+        ? `${booking.notes}\n\nCancelamento: ${reason}`
         : `Cancelamento: ${reason}`;
     }
 
@@ -212,24 +273,6 @@ export class BookingService {
     });
   }
 
-  /**
-   * Atualizar dados do pagamento (usado pelos webhooks)
-   */
-  async updatePaymentData(
-    bookingId: string,
-    paymentData: any,
-  ): Promise<BookingResponseDto> {
-    const booking = await this.findBookingEntity(bookingId);
-
-    booking.paymentData = {
-      ...booking.paymentData,
-      ...paymentData,
-    };
-
-    const updatedBooking = await this.bookingRepository.save(booking);
-
-    return this.toResponseDto(updatedBooking);
-  }
 
   /**
    * Métodos privados de apoio
@@ -239,8 +282,8 @@ export class BookingService {
    * Buscar entidade de reserva (uso interno)
    */
   private async findBookingEntity(id: string, userId?: string): Promise<Booking> {
-    const whereConditions: any = { id };
-    
+    const whereConditions: any = { booking_id: id };
+
     if (userId) {
       whereConditions.userId = userId;
     }
@@ -265,26 +308,23 @@ export class BookingService {
       throw new BadRequestException('Valor total deve ser maior que zero');
     }
 
-    // Validar dados do voo
-    if (!createBookingDto.flightDetails || !createBookingDto.flightDetails.id) {
-      throw new BadRequestException('Detalhes do voo são obrigatórios');
+    // Validar passageiros
+    if (!createBookingDto.passengers || createBookingDto.passengers.length === 0) {
+      throw new BadRequestException('Ao menos um passageiro é obrigatório');
     }
-
-    // Validar dados do passageiro
-    const { passengerData } = createBookingDto;
-    
-    // Validar idade (data de nascimento)
-    const birthDate = new Date(passengerData.birthDate);
-    const today = new Date();
-    const age = today.getFullYear() - birthDate.getFullYear();
-    
-    if (age < 18 || age > 120) {
-      throw new BadRequestException('Passageiro deve ter entre 18 e 120 anos');
-    }
-
-    // Validar CPF (algoritmo simples)
-    if (!this.isValidCPF(passengerData.document)) {
-      throw new BadRequestException('CPF inválido');
+    // Validar dados de cada passageiro
+    for (const p of createBookingDto.passengers) {
+      // Validar idade
+      const birthDate = new Date(p.birthDate);
+      const today = new Date();
+      const age = today.getFullYear() - birthDate.getFullYear();
+      if (age < 18 || age > 120) {
+        throw new BadRequestException('Passageiro deve ter entre 18 e 120 anos');
+      }
+      // Validar CPF
+      if (!this.isValidCPF(p.document)) {
+        throw new BadRequestException('CPF inválido');
+      }
     }
   }
 
@@ -300,7 +340,7 @@ export class BookingService {
     };
 
     const allowedStatuses = validTransitions[currentStatus];
-    
+
     if (!allowedStatuses.includes(newStatus)) {
       throw new BadRequestException(
         `Transição de status inválida: ${currentStatus} -> ${newStatus}`
@@ -350,19 +390,28 @@ export class BookingService {
    */
   private toResponseDto(booking: Booking): BookingResponseDto {
     return {
-      id: booking.id,
-      flightId: booking.flightId,
-      userId: booking.userId,
+      // Support both legacy and new properties for compatibility
+      id: booking.booking_id,
+      flightId: booking.flight?.id ?? (booking as any).flightId,
+      userId: booking.customer.id,
       status: booking.status,
-      passengerData: booking.passengerData,
-      flightDetails: booking.flightDetails,
-      totalAmount: booking.totalAmount,
-      currency: booking.currency,
-      preferenceId: booking.preferenceId,
-      paymentData: booking.paymentData,
-      notes: booking.notes,
-      createdAt: booking.createdAt,
-      updatedAt: booking.updatedAt,
+      passengers: booking.passengers?.map(p => ({
+        firstName: p.first_name,
+        lastName: p.last_name,
+        email: p.email,
+        phone: p.phone,
+        document: p.document,
+        birthDate: p.birth_date,
+      } as PassengerDataDto)) || [],
+      totalAmount: Number(booking.total_amount),
+      currency: 'BRL',
+      payments: booking.payments?.map(pay => ({
+        amount: Number(pay.amount),
+        method: pay.method,
+        status: pay.status,
+        paymentDate: pay.payment_date,
+      })) || [],
+      // notes, createdAt, updatedAt if supported
     };
   }
 }

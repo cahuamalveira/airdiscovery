@@ -12,6 +12,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { BookingService } from './booking.service';
+import { StripeService } from '../stripe/stripe.service';
 import { 
   CreateBookingDto, 
   UpdateBookingDto, 
@@ -34,7 +35,9 @@ import {
  */
 @Controller('bookings')
 export class BookingController {
-  constructor(private readonly bookingService: BookingService) {}
+  constructor(
+    private readonly bookingService: BookingService,
+  ) {}
 
   /**
    * Criar nova reserva
@@ -177,17 +180,10 @@ export class BookingController {
   @Patch(':id/confirm-payment')
   async confirmPayment(
     @Param('id') id: string,
-    @Body() paymentData: {
-      paymentId: string;
-      transactionId?: string;
-    },
-  ): Promise<{
-    statusCode: number;
-    message: string;
-    data: BookingResponseDto;
-  }> {
+    @Body() paymentData: { paymentId: string; transactionId?: string },
+  ): Promise<{ statusCode: number; message: string; data: BookingResponseDto }> {
+    // Delegate payment confirmation and persistence to BookingService
     const booking = await this.bookingService.confirmPayment(id, paymentData);
-    
     return {
       statusCode: HttpStatus.OK,
       message: 'Pagamento confirmado com sucesso',

@@ -1,0 +1,95 @@
+# ================================
+# Docker Compose Seguro para Produção
+# ================================
+version: '3.8'
+
+services:
+  airdiscovery-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      # Usar BuildKit para melhor cache e segurança
+    image: airdiscovery:latest
+    
+    # Configurações de segurança
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETGID
+      - SETUID
+    
+    # Usuário não-root
+    user: "1001:1001"
+    
+    # Recursos limitados
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+        reservations:
+          memory: 256M
+          cpus: '0.25'
+    
+    # Variáveis de ambiente
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      # Adicione outras variáveis necessárias aqui
+    
+    # Volumes temporários para logs (read-only filesystem)
+    tmpfs:
+      - /tmp:noexec,nosuid,size=100m
+      - /home/nestjs/app/logs:noexec,nosuid,size=50m
+    
+    # Rede
+    ports:
+      - "3000:3000"
+    
+    # Health check
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/health', (res) => { process.exit(res.statusCode === 200 ? 0 : 1) })"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    
+    # Restart policy
+    restart: unless-stopped
+
+  # Exemplo de banco de dados seguro
+  database:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: airdiscovery
+      POSTGRES_USER: nestjs
+      POSTGRES_PASSWORD_FILE: /run/secrets/db_password
+    secrets:
+      - db_password
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - FOWNER
+      - SETGID
+      - SETUID
+    restart: unless-stopped
+
+# Volumes
+volumes:
+  postgres_data:
+    driver: local
+
+# Secrets (para produção, use gerenciador de secrets externo)
+secrets:
+  db_password:
+    file: ./secrets/db_password.txt

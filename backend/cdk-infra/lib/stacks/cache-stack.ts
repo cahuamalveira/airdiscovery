@@ -47,8 +47,6 @@ export class CacheStack extends cdk.Stack {
       cacheSubnetGroupName: 'air-discovery-redis-subnet-group',
     });
 
-    // ⚠️ TEMPORÁRIO: Comentado para diagnóstico, reativar depois
-    /*
     // Redis Auth Token (password) managed by Secrets Manager
     this.redisAuthSecret = new secretsmanager.Secret(this, 'RedisAuthSecret', {
       secretName: 'air-discovery-redis-auth-token',
@@ -56,15 +54,15 @@ export class CacheStack extends cdk.Stack {
       generateSecretString: {
         // ✅ CORREÇÃO: Gerar token compatível com ElastiCache Redis
         excludeCharacters: '@"\\\'`/{}[]()$%^&*+=|~<>?,.:;',
-        passwordLength: 64, // Reduzido para evitar problemas
+        passwordLength: 32, // Tamanho adequado para ElastiCache
         requireEachIncludedType: false,
+        excludePunctuation: true,
         includeSpace: false,
         generateStringKey: 'auth-token',
         secretStringTemplate: '{}',
       },
       removalPolicy: cdk.RemovalPolicy.DESTROY, // For development
     });
-    */
 
     // ElastiCache Redis Replication Group with Authentication - CONFIGURAÇÃO SIMPLES
     this.redisReplicationGroup = new elasticache.CfnReplicationGroup(this, 'RedisReplicationGroup', {
@@ -87,8 +85,8 @@ export class CacheStack extends cdk.Stack {
       // Security configuration - SEGURA com autenticação obrigatória
       transitEncryptionEnabled: true,  // ✅ HABILITADO para permitir autenticação
       atRestEncryptionEnabled: true,   // ✅ Criptografia em repouso
-      // ✅ TESTE: Token simples e fixo para diagnóstico (usar Secrets Manager depois)
-      authToken: 'MysafestPassBecauseThereIsnoeasymistakes21!!', // Temporário para teste
+      // ✅ Usar token do Secrets Manager
+      authToken: this.redisAuthSecret.secretValueFromJson('auth-token').unsafeUnwrap(),
       
       // Maintenance and backup
       preferredMaintenanceWindow: 'sun:03:00-sun:04:00',
@@ -142,20 +140,16 @@ export class CacheStack extends cdk.Stack {
       exportName: 'AirDiscoveryRedisClusterId',
     });
 
-    // ⚠️ TEMPORÁRIO: Output do Secret comentado
-    /*
     new cdk.CfnOutput(this, 'RedisAuthSecretArn', {
       value: this.redisAuthSecret.secretArn,
       description: 'Redis authentication token secret ARN',
       exportName: 'AirDiscoveryRedisAuthSecretArn',
     });
-    */
 
-    // ✅ TEMPORÁRIO: Output da senha fixa para desenvolvimento
-    new cdk.CfnOutput(this, 'RedisPassword', {
-      value: 'MyRedisPassword123456789abcdefghijklmnopqrstuvwxyz',
-      description: 'Redis password (TEMPORARY - for development only)',
-      exportName: 'AirDiscoveryRedisPassword',
+    new cdk.CfnOutput(this, 'RedisAuthSecretName', {
+      value: this.redisAuthSecret.secretName,
+      description: 'Redis authentication token secret name',
+      exportName: 'AirDiscoveryRedisAuthSecretName',
     });
   }
 }
