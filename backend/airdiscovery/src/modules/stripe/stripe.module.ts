@@ -20,29 +20,29 @@ import { BookingService } from '../bookings/booking.service';
  * - Integração com BookingModule
  */
 @Module({
-  imports: [
+    imports: [
         BookingModule,
-    TypeOrmModule.forFeature([Payment]),
-    MailModule,
-  ],
-  providers: [
-    {
-      provide: Stripe,
-      useFactory: (configService: ConfigService) => {
-        const secretKey = configService.get<string>('STRIPE_SECRET_KEY');
-        if (!secretKey) {
-          throw new Error('STRIPE_SECRET_KEY não configurado');
-        }
-        return new Stripe(secretKey, { 
-          apiVersion: '2025-08-27.basil',
-          typescript: true,
-        });
-      },
-      inject: [ConfigService],
-    },
-    StripeService,
-  ],
-  controllers: [StripeWebhookController, StripeController],
-  exports: [StripeService],
+        TypeOrmModule.forFeature([Payment]),
+        MailModule,
+    ],
+    providers: [
+        {
+            provide: Stripe,
+            useFactory: (configService: ConfigService) => {
+                const secretKey = configService.get<string>('STRIPE_SECRET_KEY');
+                if (!secretKey) {
+                    throw new Error('STRIPE_SECRET_KEY não configurado');
+                }
+                return new Stripe(secretKey, {
+                    apiVersion: '2025-08-27.basil',
+                    typescript: true,
+                });
+            },
+            inject: [ConfigService],
+        },
+        StripeService,
+    ],
+    controllers: [StripeWebhookController, StripeController],
+    exports: [StripeService],
 })
 export class StripeModule {}

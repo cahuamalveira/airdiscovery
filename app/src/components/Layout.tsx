@@ -92,7 +92,7 @@ const Layout: React.FC<{ isAuthenticated: boolean, user: AuthUser | null, logout
                                 </Menu>
                             </div>
                         ) : (
-                            <Button color="inherit" component={Link} to="/voos">
+                            <Button color="inherit" component={Link} to="/chat">
                                 Entrar
                             </Button>
                         )}

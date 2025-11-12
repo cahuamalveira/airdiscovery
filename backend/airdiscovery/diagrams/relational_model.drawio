@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mxfile host="app.diagrams.net" modified="2025-09-24T12:00:00.000Z" agent="draw.io" version="20.4.2" type="device">
+  <diagram id="RelationalERD" name="Relational Model" encode="false">
+    <![CDATA[
+<mxGraphModel dx="1000" dy="600" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="827" pageHeight="1169">
+  <root>
+    <mxCell id="0"/>
+    <mxCell id="1" parent="0"/>
+    <!-- Customer Entity -->
+    <mxCell id="2" value="Customer&#xa;-- PK customer_id: int&#xa;name: varchar(100)&#xa;email: varchar(100)&#xa;phone: varchar(20)" style="rounded=0;whiteSpace=wrap;html=1;strokeColor=#000000;fillColor=#FFFFFF;" vertex="1" parent="1">
+      <mxGeometry x="20" y="20" width="180" height="100" as="geometry"/>
+    </mxCell>
+    <!-- Flight Entity -->
+    <mxCell id="3" value="Flight&#xa;-- PK id: uuid&#xa;departureCode: varchar&#xa;returnCode: varchar" style="rounded=0;whiteSpace=wrap;html=1;strokeColor=#000000;fillColor=#FFFFFF;" vertex="1" parent="1">
+      <mxGeometry x="240" y="20" width="180" height="80" as="geometry"/>
+    </mxCell>
+    <!-- Booking Entity -->
+    <mxCell id="4" value="Booking&#xa;-- PK booking_id: int&#xa;FK customer_id&#xa;FK flight_id&#xa;booking_date: date&#xa;total_amount: decimal(10,2)&#xa;status: varchar(20)" style="rounded=0;whiteSpace=wrap;html=1;strokeColor=#000000;fillColor=#FFFFFF;" vertex="1" parent="1">
+      <mxGeometry x="20" y="150" width="220" height="140" as="geometry"/>
+    </mxCell>
+    <!-- Passenger Entity -->
+    <mxCell id="5" value="Passenger&#xa;-- PK passenger_id: int&#xa;FK booking_id&#xa;first_name: varchar(50)&#xa;last_name: varchar(50)&#xa;passport_number: varchar(20)" style="rounded=0;whiteSpace=wrap;html=1;strokeColor=#000000;fillColor=#FFFFFF;" vertex="1" parent="1">
+      <mxGeometry x="260" y="150" width="220" height="120" as="geometry"/>
+    </mxCell>
+    <!-- Payment Entity -->
+    <mxCell id="6" value="Payment&#xa;-- PK payment_id: int&#xa;FK booking_id&#xa;amount: decimal(10,2)&#xa;payment_date: timestamp&#xa;method: varchar(20)&#xa;status: varchar(20)" style="rounded=0;whiteSpace=wrap;html=1;strokeColor=#000000;fillColor=#FFFFFF;" vertex="1" parent="1">
+      <mxGeometry x="500" y="150" width="220" height="140" as="geometry"/>
+    </mxCell>
+    <!-- Relationships -->
+    <mxCell id="7" edge="1" source="4" target="2" style="endArrow=block;html=1;strokeColor=#000000;" parent="1">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+    <mxCell id="8" edge="1" source="4" target="3" style="endArrow=block;html=1;strokeColor=#000000;" parent="1">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+    <mxCell id="9" edge="1" source="5" target="4" style="endArrow=block;html=1;strokeColor=#000000;" parent="1">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+    <mxCell id="10" edge="1" source="6" target="4" style="endArrow=block;html=1;strokeColor=#000000;" parent="1">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+  </root>
+</mxGraphModel>
+    ]]>
+  </diagram>
+</mxfile>
