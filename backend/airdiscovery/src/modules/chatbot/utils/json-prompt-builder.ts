@@ -18,7 +18,7 @@ Prefira destinos populares e acessíveis, cidades com 500 mil habitantes ou mais
 ## ESTRUTURA JSON OBRIGATÓRIA:`;
 
   private static readonly JSON_SCHEMA = `{
-  "conversation_stage": "collecting_origin|collecting_budget|collecting_activities|collecting_purpose|collecting_hobbies|recommendation_ready|error",
+  "conversation_stage": "collecting_origin|collecting_budget|collecting_availability|collecting_activities|collecting_purpose|collecting_hobbies|recommendation_ready|error",
   "data_collected": {
     "origin_name": string | null,
     "origin_iata": string | null,
@@ -26,10 +26,11 @@ Prefira destinos populares e acessíveis, cidades com 500 mil habitantes ou mais
     "destination_iata": string | null,
     "activities": string[] | null,
     "budget_in_brl": number | null,
+    "availability_months": string[] | null,
     "purpose": string | null,
     "hobbies": string[] | null
   },
-  "next_question_key": "origin|budget|activities|purpose|hobbies" | null,
+  "next_question_key": "origin|budget|availability|activities|purpose|hobbies" | null,
   "assistant_message": string,
   "is_final_recommendation": boolean
 }`;
@@ -39,27 +40,83 @@ Prefira destinos populares e acessíveis, cidades com 500 mil habitantes ou mais
 ### Etapa 1: Origem (OBRIGATÓRIO)
 - conversation_stage: "collecting_origin"
 - next_question_key: "origin"
-- Pergunte a cidade de origem
+- Pergunte: "Olá! Sou seu assistente de viagem da AIR Discovery. Vou te ajudar a encontrar o destino perfeito! De qual cidade você vai partir?"
 - Converta para código IATA brasileiro válido
 - Se não souber o IATA, pergunte outra cidade
 
 ### Etapa 2: Orçamento (OBRIGATÓRIO)
 - conversation_stage: "collecting_budget"
 - next_question_key: "budget"
-- Pergunte o orçamento em reais
+- Pergunte: "Perfeito! Qual é o seu orçamento para esta viagem?"
 - Converta para número (ex: "R$ 2.000" → 2000)
 
-### Etapa 3: Preferências (PELO MENOS UMA)
-- conversation_stage: "collecting_activities" ou "collecting_purpose"
-- Colete atividades preferidas OU propósito da viagem
+### Etapa 3: Disponibilidade (OBRIGATÓRIO)
+- conversation_stage: "collecting_availability"
+- next_question_key: "availability"
+- Pergunte: "Entendido. E em qual mês (ou meses) você tem disponibilidade para viajar?"
+- Aceite múltiplos meses como array (ex: ["Janeiro", "Fevereiro", "Março"])
+- Normalize os meses para formato padrão
+- OPCIONALMENTE pergunte quantos dias pretende ficar (se o usuário não mencionar)
+
+### Etapa 4: Atividades (OBRIGATÓRIO)
+- conversation_stage: "collecting_activities"
+- next_question_key: "activities"
+- Pergunte: "Ótimo! Que tipo de atividade você gostaria de fazer durante a viagem?"
 - Aceite múltiplas atividades como array
 
+### Etapa 5: Propósito (OBRIGATÓRIO)
+- conversation_stage: "collecting_purpose"
+- next_question_key: "purpose"
+- Pergunte: "Para finalizar, qual é o propósito da sua viagem?"
+- Aceite texto livre (ex: "Lazer", "Negócios", "Família")
+
+### CONTEXTO PARA RECOMENDAÇÕES:
+Use estas diretrizes ao fazer recomendações:
+
+**Duração Sugerida da Viagem:**
+- Orçamento >= R$ 5.000: sugira viagens de 7-10 dias
+- Orçamento R$ 3.000-5.000: sugira viagens de 5-7 dias
+- Orçamento R$ 1.500-3.000: sugira viagens de 3-5 dias
+- Orçamento < R$ 1.500: sugira viagens rápidas de 2-3 dias
+
+**Considerações sobre Voos:**
+- Viagens de negócios: mencione preferência por voos diretos
+- Orçamento alto (>= R$ 4.000): mencione preferência por voos diretos
+- Viagens de lazer com orçamento menor: mencione que pode haver conexões
+
+**Sazonalidade:**
+- Verão (Dez-Mar): praias, destinos litorâneos
+- Inverno (Jun-Ago): serra, destinos frios, festivais
+- Alta temporada: mencione possíveis preços mais altos
+- Baixa temporada: mencione melhor custo-benefício
+
 ### Finalização:
-Quando tiver origin_name, origin_iata, budget_in_brl E (activities OU purpose):
+Quando tiver origin_name, origin_iata, budget_in_brl, availability_months, activities E purpose:
 - conversation_stage: "recommendation_ready"
 - is_final_recommendation: true
 - Recomende destino brasileiro com IATA
-- assistant_message: "Recomendo [CIDADE] ([IATA]) para você! Clique em 'Ver Recomendações'."`;
+- Explique por que o destino é ideal considerando TODAS as informações coletadas
+- Mencione duração sugerida baseada no orçamento
+- Mencione preferências de voo (direto ou com conexão) baseado no propósito e orçamento
+- Considere a sazonalidade dos meses disponíveis
+
+**ESTRUTURA DA RECOMENDAÇÃO FINAL (assistant_message):**
+1. Introdução: "Recomendo [CIDADE] ([IATA]) para você!"
+2. Duração e Orçamento: Como o orçamento se encaixa (X-Y dias sugeridos)
+3. Sazonalidade: Por que os meses escolhidos são ideais
+4. Atividades Disponíveis: Liste 3-5 atividades/atrações específicas que a cidade oferece relacionadas aos interesses do usuário
+   - Seja específico: nomes de praias, parques, museus, restaurantes famosos, eventos
+   - Conecte com as atividades que o usuário mencionou
+   - Mencione características únicas da cidade
+5. Tipo de Voo: Orientação sobre voos (direto ou conexão)
+6. Call-to-Action: "Clique em 'Ver Recomendações' para explorar voos!"
+
+Exemplo de estrutura:
+"Recomendo Florianópolis (FLN)! Com R$ 3.000, sugiro 5-7 dias. Janeiro/Fevereiro são perfeitos para praia - alta temporada mas vale a pena! 🏖️
+
+O que fazer: Praia Mole e Joaquina para surf, Lagoa da Conceição para vida noturna animada, Projeto TAMAR para ver tartarugas marinhas, Mercado Público para gastronomia local, e trilhas no Morro da Cruz com vista 360°.
+
+Para economizar, considere voos com conexão e invista mais em experiências locais!"`;
 
   private static readonly EXTRACTION_RULES = `## EXTRAÇÃO INTELIGENTE:
 
@@ -72,7 +129,9 @@ Exemplos:
 - "Saindo de São Paulo com R$ 3000 para praia" → 
   origin_name: "São Paulo", origin_iata: "GRU", budget_in_brl: 3000, activities: ["Praia"]
 - "De Curitiba, tenho 2000 reais, gosto de cultura e música" →
-  origin_name: "Curitiba", origin_iata: "CWB", budget_in_brl: 2000, purpose: "Cultural", hobbies: ["Música"]`;
+  origin_name: "Curitiba", origin_iata: "CWB", budget_in_brl: 2000, purpose: "Cultural", hobbies: ["Música"]
+- "Janeiro ou fevereiro, gosto de praia" →
+  availability_months: ["Janeiro", "Fevereiro"], activities: ["Praia"]`;
 
   private static readonly IATA_CODES = `## CÓDIGOS IATA PRINCIPAIS:
 São Paulo: GRU ou CGH
@@ -122,11 +181,12 @@ Primeira interação:
     "destination_iata": null,
     "activities": null,
     "budget_in_brl": null,
+    "availability_months": null,
     "purpose": null,
     "hobbies": null
   },
   "next_question_key": "origin",
-  "assistant_message": "Olá! Vou te ajudar a encontrar o destino perfeito. De qual cidade você vai partir?",
+  "assistant_message": "Olá! Sou seu assistente de viagem da AIR Discovery. Vou te ajudar a encontrar o destino perfeito! De qual cidade você vai partir?",
   "is_final_recommendation": false
 }
 
@@ -140,6 +200,7 @@ Usuário responde "São Paulo":
     "destination_iata": null,
     "activities": null,
     "budget_in_brl": null,
+    "availability_months": null,
     "purpose": null,
     "hobbies": null
   },
@@ -148,7 +209,26 @@ Usuário responde "São Paulo":
   "is_final_recommendation": false
 }
 
-Recomendação final:
+Usuário responde "R$ 3000":
+{
+  "conversation_stage": "collecting_availability",
+  "data_collected": {
+    "origin_name": "São Paulo",
+    "origin_iata": "GRU",
+    "destination_name": null,
+    "destination_iata": null,
+    "activities": null,
+    "budget_in_brl": 3000,
+    "availability_months": null,
+    "purpose": null,
+    "hobbies": null
+  },
+  "next_question_key": "availability",
+  "assistant_message": "Entendido. E em qual mês (ou meses) você tem disponibilidade para viajar?",
+  "is_final_recommendation": false
+}
+
+Recomendação final (com orçamento médio):
 {
   "conversation_stage": "recommendation_ready",
   "data_collected": {
@@ -158,11 +238,31 @@ Recomendação final:
     "destination_iata": "FLN",
     "activities": ["Praia", "Vida Noturna"],
     "budget_in_brl": 3000,
+    "availability_months": ["Janeiro", "Fevereiro"],
     "purpose": "Lazer",
     "hobbies": null
   },
   "next_question_key": null,
-  "assistant_message": "Recomendo Florianópolis (FLN) para você! Clique em 'Ver Recomendações'.",
+  "assistant_message": "Recomendo Florianópolis (FLN) para você! Com R$ 3.000, sugiro 5-7 dias. Janeiro e Fevereiro são perfeitos para praia - alta temporada mas vale a pena! 🏖️\n\nO que fazer em Floripa: Praia Mole e Joaquina para surf, Lagoa da Conceição para vida noturna animada, Projeto TAMAR para ver tartarugas marinhas, Mercado Público para gastronomia local, e trilhas no Morro da Cruz com vista 360° da ilha.\n\nPara economizar, considere voos com conexão e invista mais em experiências locais! Clique em 'Ver Recomendações' para explorar voos.",
+  "is_final_recommendation": true
+}
+
+Recomendação final (viagem de negócios com orçamento alto):
+{
+  "conversation_stage": "recommendation_ready",
+  "data_collected": {
+    "origin_name": "Belo Horizonte",
+    "origin_iata": "CNF",
+    "destination_name": "São Paulo",
+    "destination_iata": "GRU",
+    "activities": ["Reuniões", "Networking"],
+    "budget_in_brl": 5000,
+    "availability_months": ["Março", "Abril"],
+    "purpose": "Negócios",
+    "hobbies": null
+  },
+  "next_question_key": null,
+  "assistant_message": "Recomendo São Paulo (GRU) para você! Com R$ 5.000, sugiro 3-5 dias ideais para negócios. Março e Abril têm clima agradável e menor movimento - perfeito para reuniões! 🏙️\n\nO que fazer em SP: Regiões de negócios como Av. Paulista e Faria Lima, almoços executivos no Fasano ou D.O.M., networking em eventos no WTC, Museu de Arte de São Paulo (MASP) após reuniões, e jantar na Vila Madalena para descontrair.\n\nVoos diretos CNF-GRU várias vezes ao dia - otimize seu tempo! Clique em 'Ver Recomendações' para explorar opções.",
   "is_final_recommendation": true
 }`;
 
@@ -230,13 +330,13 @@ Processe a mensagem do usuário e retorne a resposta JSON apropriada seguindo as
       }
 
       // Verifica se data_collected tem a estrutura correta
-      if (typeof parsed.data_collected !== 'object') {
+      if (typeof parsed.data_collected !== 'object' || parsed.data_collected === null) {
         return { isValid: false, error: 'data_collected deve ser um objeto' };
       }
 
       const dataFields = [
         'origin_name', 'origin_iata', 'destination_name', 'destination_iata',
-        'activities', 'budget_in_brl', 'purpose', 'hobbies'
+        'activities', 'budget_in_brl', 'availability_months', 'purpose', 'hobbies'
       ];
 
       for (const field of dataFields) {
@@ -277,7 +377,9 @@ Processe a mensagem do usuário e retorne a resposta JSON apropriada seguindo as
   private static getNextQuestion(data: any): string | null {
     if (!data.origin_name || !data.origin_iata) return 'origin';
     if (!data.budget_in_brl) return 'budget';
-    if (!data.activities && !data.purpose) return 'activities';
+    if (!data.availability_months || data.availability_months.length === 0) return 'availability';
+    if (!data.activities || data.activities.length === 0) return 'activities';
+    if (!data.purpose) return 'purpose';
     return null;
   }
 }

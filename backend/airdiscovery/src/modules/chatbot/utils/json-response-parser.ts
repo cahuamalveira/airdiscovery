@@ -202,6 +202,7 @@ export class JsonResponseParser {
           destination_iata: null,
           activities: null,
           budget_in_brl: null,
+          availability_months: null,
           purpose: null,
           hobbies: null
         },
@@ -263,6 +264,7 @@ export class JsonResponseParser {
                 destination_iata: null,
                 activities: null,
                 budget_in_brl: null,
+                availability_months: null,
                 purpose: null,
                 hobbies: null
               };
@@ -341,6 +343,7 @@ export class JsonResponseParser {
       'destination_iata',
       'activities',
       'budget_in_brl',
+      'availability_months',
       'purpose',
       'hobbies'
     ];
@@ -366,6 +369,13 @@ export class JsonResponseParser {
       return {
         isValid: false,
         error: 'activities deve ser array ou null'
+      };
+    }
+
+    if (data.availability_months !== null && !Array.isArray(data.availability_months)) {
+      return {
+        isValid: false,
+        error: 'availability_months deve ser array ou null'
       };
     }
 
@@ -423,10 +433,12 @@ export class JsonResponseParser {
   /**
    * Determina próxima pergunta necessária
    */
-  private static determineNextQuestion(data: CollectedData): 'origin' | 'budget' | 'activities' | 'purpose' | 'hobbies' | null {
+  private static determineNextQuestion(data: CollectedData): 'origin' | 'budget' | 'availability' | 'activities' | 'purpose' | 'hobbies' | null {
     if (!data.origin_name || !data.origin_iata) return 'origin';
     if (!data.budget_in_brl) return 'budget';
-    if (!data.activities && !data.purpose) return 'activities';
+    if (!data.availability_months || data.availability_months.length === 0) return 'availability';
+    if (!data.activities || data.activities.length === 0) return 'activities';
+    if (!data.purpose) return 'purpose';
     return null;
   }
 
@@ -455,7 +467,9 @@ export class JsonResponseParser {
       data.origin_name && 
       data.origin_iata && 
       data.budget_in_brl && 
-      (data.activities?.length || data.purpose)
+      data.availability_months?.length &&
+      data.activities?.length &&
+      data.purpose
     );
   }
 

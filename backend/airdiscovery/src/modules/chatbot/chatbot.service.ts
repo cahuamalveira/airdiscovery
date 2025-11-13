@@ -24,6 +24,7 @@ import { ChatSessionRepository } from './repositories/chat-session.repository';
 import { ChatSession, UserProfile, ChatMessage } from './interfaces/chat.interface';
 import { JsonPromptBuilder } from './utils/json-prompt-builder';
 import { JsonResponseParser } from './utils/json-response-parser';
+import { convertAvailabilityToDateRange } from './utils/date-converter.util';
 
 /**
  * Nova implementação do ChatbotService focada em respostas JSON estruturadas
@@ -90,6 +91,7 @@ export class ChatbotService {
       destination_iata: null,
       activities: chatSession.profileData?.activities || null,
       budget_in_brl: chatSession.profileData?.budget || null,
+      availability_months: null, // Novo campo - não disponível em sessões legacy
       purpose: chatSession.profileData?.purpose || null,
       hobbies: chatSession.profileData?.hobbies || null
     };
@@ -122,10 +124,11 @@ export class ChatbotService {
     const stageToIndex = {
       'collecting_origin': 0,
       'collecting_budget': 1,
-      'collecting_activities': 2,
-      'collecting_purpose': 3,
-      'collecting_hobbies': 4,
-      'recommendation_ready': 5,
+      'collecting_availability': 2,
+      'collecting_activities': 3,
+      'collecting_purpose': 4,
+      'collecting_hobbies': 5,
+      'recommendation_ready': 6,
       'error': 0
     };
     return stageToIndex[stage] || 0;
@@ -184,6 +187,7 @@ export class ChatbotService {
         destination_iata: null,
         activities: null,
         budget_in_brl: null,
+        availability_months: null,
         purpose: null,
         hobbies: null
       },
@@ -498,7 +502,9 @@ export class ChatbotService {
   private getNextQuestionKey(data: CollectedData): NextQuestionKey {
     if (!data.origin_name || !data.origin_iata) return 'origin';
     if (!data.budget_in_brl) return 'budget';
-    if (!data.activities && !data.purpose) return 'activities';
+    if (!data.availability_months || data.availability_months.length === 0) return 'availability';
+    if (!data.activities || data.activities.length === 0) return 'activities';
+    if (!data.purpose) return 'purpose';
     return null;
   }
 
@@ -543,6 +549,54 @@ export class ChatbotService {
     return {
       active: 0,
       completed: 0
+    };
+  }
+
+  /**
+   * Obtém parâmetros de busca de voos prontos a partir dos dados coletados
+   * Converte availability_months em departureDate e returnDate
+   * 
+   * NOTA: Todas as regras de negócio (duração, voos diretos, etc) estão no prompt da LLM.
+   * Este método apenas converte os meses em datas e monta os parâmetros básicos.
+   * 
+   * @param sessionId - ID da sessão
+   * @param tripDuration - Duração da viagem em dias (padrão: 7)
+   * @returns Parâmetros prontos para busca de voos ou null se dados insuficientes
+   */
+  async getFlightSearchParamsFromSession(
+    sessionId: string,
+    tripDuration: number = 7
+  ): Promise<{
+    originLocationCode: string;
+    destinationLocationCode: string;
+    departureDate: string;
+    returnDate: string;
+    adults: number;
+  } | null> {
+    const session = await this.getChatSession(sessionId);
+    if (!session || !session.collectedData) {
+      return null;
+    }
+
+    const data = session.collectedData;
+
+    // Valida se temos os dados mínimos
+    if (!data.origin_iata || !data.destination_iata) {
+      return null;
+    }
+
+    // Converte os meses em datas específicas
+    const dateRange = convertAvailabilityToDateRange(
+      data.availability_months,
+      tripDuration
+    );
+
+    return {
+      originLocationCode: data.origin_iata,
+      destinationLocationCode: data.destination_iata,
+      departureDate: dateRange.departureDate,
+      returnDate: dateRange.returnDate,
+      adults: 1 // Pode ser parametrizado futuramente
     };
   }
 }

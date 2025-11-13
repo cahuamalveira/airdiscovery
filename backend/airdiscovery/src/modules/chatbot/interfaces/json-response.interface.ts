@@ -5,6 +5,7 @@
 export type ConversationStage = 
   | 'collecting_origin' 
   | 'collecting_budget' 
+  | 'collecting_availability'
   | 'collecting_activities' 
   | 'collecting_purpose' 
   | 'collecting_hobbies' 
@@ -14,6 +15,7 @@ export type ConversationStage =
 export type NextQuestionKey = 
   | 'origin' 
   | 'budget' 
+  | 'availability'
   | 'activities' 
   | 'purpose' 
   | 'hobbies' 
@@ -26,6 +28,7 @@ export interface CollectedData {
   readonly destination_iata: string | null;
   readonly activities: readonly string[] | null;
   readonly budget_in_brl: number | null;
+  readonly availability_months: readonly string[] | null;
   readonly purpose: string | null;
   readonly hobbies: readonly string[] | null;
 }
