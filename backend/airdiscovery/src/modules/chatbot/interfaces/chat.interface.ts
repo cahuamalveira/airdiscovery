@@ -67,6 +67,7 @@ export interface UserProfile {
   origin: string;
   activities: string[];
   budget: number; // em centavos
+  availability_months?: string[]; // Meses de disponibilidade para viagem
   purpose: string;
   hobbies: string[];
 }

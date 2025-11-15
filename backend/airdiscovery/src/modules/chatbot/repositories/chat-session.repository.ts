@@ -62,6 +62,8 @@ export class ChatSessionRepository {
         activities: Array.isArray(session.profileData?.activities) ? 
           session.profileData.activities.filter(item => item !== undefined && item !== null && item !== '') : [],
         budget: Number(session.profileData?.budget || 0), // Keep as number for cents
+        availability_months: Array.isArray(session.profileData?.availability_months) ? 
+          session.profileData.availability_months.filter(item => item !== undefined && item !== null && item !== '') : [],
         purpose: String(session.profileData?.purpose || ''),
         hobbies: Array.isArray(session.profileData?.hobbies) ? 
           session.profileData.hobbies.filter(item => item !== undefined && item !== null && item !== '') : []
@@ -184,6 +186,35 @@ export class ChatSessionRepository {
       return result.Items.map(item => this.mapDynamoItemToSession(item));
     } catch (error) {
       this.logger.error(`Error getting user sessions for ${userId}:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Busca TODAS as sessões de um usuário (completas e incompletas)
+   * Usado para histórico de conversas
+   */
+  async getAllUserSessions(userId: string): Promise<ChatSession[]> {
+    try {
+      const params: QueryCommandInput = {
+        TableName: this.tableName,
+        IndexName: this.indexName,
+        KeyConditionExpression: 'UserId = :userId',
+        ExpressionAttributeValues: {
+          ':userId': userId
+        },
+        ScanIndexForward: false // Ordena por mais recente primeiro
+      };
+
+      const result = await this.dynamoClient.send(new DocQueryCommand(params));
+      
+      if (!result.Items) {
+        return [];
+      }
+
+      return result.Items.map(item => this.mapDynamoItemToSession(item));
+    } catch (error) {
+      this.logger.error(`Error getting all user sessions for ${userId}:`, error);
       throw error;
     }
   }
@@ -330,17 +361,31 @@ export class ChatSessionRepository {
       timestamp: msg.timestamp ? new Date(msg.timestamp) : new Date()
     }));
 
+    // Ensure ProfileData has all fields with proper defaults
+    const defaultProfile: UserProfile = {
+      origin: '',
+      activities: [],
+      budget: 0,
+      availability_months: [],
+      purpose: '',
+      hobbies: []
+    };
+
+    // Merge with actual data from DynamoDB, ensuring all fields exist
+    const profileData: UserProfile = item.ProfileData ? {
+      origin: item.ProfileData.origin || '',
+      activities: Array.isArray(item.ProfileData.activities) ? item.ProfileData.activities : [],
+      budget: typeof item.ProfileData.budget === 'number' ? item.ProfileData.budget : 0,
+      availability_months: Array.isArray(item.ProfileData.availability_months) ? item.ProfileData.availability_months : [],
+      purpose: item.ProfileData.purpose || '',
+      hobbies: Array.isArray(item.ProfileData.hobbies) ? item.ProfileData.hobbies : []
+    } : defaultProfile;
+
     return {
       sessionId: item.SessionId,
       userId: item.UserId,
       messages: messages,
-      profileData: item.ProfileData || {
-        origin: '',
-        activities: [],
-        budget: 0, // Initialize as 0 cents instead of empty string
-        purpose: '',
-        hobbies: []
-      },
+      profileData,
       currentQuestionIndex: item.CurrentQuestionIndex || 0,
       interviewComplete: item.InterviewComplete || false,
       readyForRecommendation: item.ReadyForRecommendation || false,

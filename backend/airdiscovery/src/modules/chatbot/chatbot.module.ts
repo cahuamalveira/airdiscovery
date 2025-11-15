@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { ChatbotService } from './chatbot.service';
 import { ChatbotGateway } from './chatbot.gateway'; // Agora é o gateway JSON
+import { SessionsController } from './sessions.controller';
 import { ChatSessionRepository } from './repositories/chat-session.repository';
 import { SocketAuthRepository } from './repositories/socket-auth.repository';
 import { RedisConfigService } from './services/redis-config.service';
@@ -16,6 +17,7 @@ import { RedisConfigService } from './services/redis-config.service';
  * - Autenticação JWT integrada
  * - Suporte a respostas JSON estruturadas (nova arquitetura)
  * - Mantém compatibilidade com endpoints WebSocket existentes
+ * - API REST para histórico de conversas
  */
 @Module({
   imports: [ConfigModule],
@@ -26,6 +28,7 @@ import { RedisConfigService } from './services/redis-config.service';
     SocketAuthRepository, 
     RedisConfigService
   ],
+  controllers: [SessionsController], // Controller REST para histórico
   exports: [ChatbotService], // Permite uso em outros módulos
 })
 export class ChatbotModule {}

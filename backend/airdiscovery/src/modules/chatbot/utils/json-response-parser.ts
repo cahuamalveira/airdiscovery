@@ -17,6 +17,10 @@ export class JsonResponseParser {
   public static parseResponse(rawResponse: string): ValidationResult {
     console.log('🔍 JsonResponseParser: Iniciando parse da resposta:', rawResponse.substring(0, 200) + '...');
     
+    // 🔧 SANITIZA a resposta ANTES de tentar parse
+    const sanitized = this.sanitizeResponse(rawResponse);
+    console.log('🧹 Resposta sanitizada:', sanitized.substring(0, 200) + '...');
+    
     const strategies = [
       { name: 'directParse', fn: this.directParse },
       { name: 'cleanAndParse', fn: this.cleanAndParse },
@@ -30,7 +34,7 @@ export class JsonResponseParser {
     for (const strategy of strategies) {
       try {
         console.log(`🧪 Tentando estratégia: ${strategy.name}`);
-        const result = strategy.fn.call(this, rawResponse);
+        const result = strategy.fn.call(this, sanitized); // 🔧 USA sanitized ao invés de rawResponse
         
         if (result.isValid && result.parsedData) {
           console.log(`✅ Estratégia ${strategy.name} funcionou!`);
@@ -306,6 +310,16 @@ export class JsonResponseParser {
         return dataValidation;
       }
 
+      // CRÍTICO: Se é recomendação final, destino DEVE estar preenchido
+      if (data.is_final_recommendation) {
+        if (!data.data_collected.destination_name || !data.data_collected.destination_iata) {
+          return {
+            isValid: false,
+            error: 'Recomendação final requer destination_name e destination_iata preenchidos'
+          };
+        }
+      }
+
       // Valida conversation_stage
       const stageValidation = this.validateConversationStage(data.conversation_stage);
       if (!stageValidation.isValid) {
@@ -395,7 +409,8 @@ export class JsonResponseParser {
   private static validateConversationStage(stage: string): ValidationResult {
     const validStages: ConversationStage[] = [
       'collecting_origin',
-      'collecting_budget', 
+      'collecting_budget',
+      'collecting_availability', // 🔧 ADICIONADO: estava faltando
       'collecting_activities',
       'collecting_purpose',
       'collecting_hobbies',
@@ -446,17 +461,28 @@ export class JsonResponseParser {
    * Sanitiza resposta removendo caracteres problemáticos
    */
   public static sanitizeResponse(response: string): string {
-    return response
-      .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '') // Remove caracteres de controle
+    let sanitized = response
       .replace(/\u0000/g, '') // Remove null bytes
-      .replace(/\r\n/g, '\n') // Normaliza quebras de linha
-      .replace(/\r/g, '\n')
       .replace(/^\s*```json\s*/gmi, '') // Remove marcadores de código JSON
       .replace(/^\s*```\s*/gmi, '') // Remove marcadores de código genéricos
       .replace(/```\s*$/gmi, '') // Remove fechamentos de código
       .replace(/^\s*Here's?\s+the\s+JSON\s*:?\s*/gmi, '') // Remove prefixos explicativos
-      .replace(/^\s*JSON\s*:?\s*/gmi, '') // Remove prefixos "JSON:"
-      .trim();
+      .replace(/^\s*JSON\s*:?\s*/gmi, ''); // Remove prefixos "JSON:"
+    
+    // 🔧 CONVERTE quebras de linha LITERAIS (os caracteres \ e n juntos) em espaços
+    // Isso acontece quando a LLM retorna JSON "formatado" como string
+    sanitized = sanitized
+      .replace(/\\n/g, ' ')    // \n literais → espaços
+      .replace(/\\r/g, ' ')    // \r literais → espaços
+      .replace(/\\t/g, ' ')    // \t literais → espaços
+      .replace(/\s+/g, ' ');   // Múltiplos espaços → um espaço
+    
+    // Remove quebras de linha REAIS (caracteres de controle)
+    sanitized = sanitized
+      .replace(/[\r\n]+/g, ' ') // Quebras reais → espaços
+      .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, ''); // Remove outros caracteres de controle
+    
+    return sanitized.trim();
   }
 
   /**

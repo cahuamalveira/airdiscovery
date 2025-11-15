@@ -53,6 +53,7 @@ export class ChatbotService {
       origin: jsonSession.collectedData.origin_name || '',
       activities: Array.from(jsonSession.collectedData.activities || []),
       budget: jsonSession.collectedData.budget_in_brl || 0,
+      availability_months: Array.from(jsonSession.collectedData.availability_months || []),
       purpose: jsonSession.collectedData.purpose || '',
       hobbies: Array.from(jsonSession.collectedData.hobbies || [])
     };
@@ -91,7 +92,7 @@ export class ChatbotService {
       destination_iata: null,
       activities: chatSession.profileData?.activities || null,
       budget_in_brl: chatSession.profileData?.budget || null,
-      availability_months: null, // Novo campo - não disponível em sessões legacy
+      availability_months: chatSession.profileData?.availability_months || null,
       purpose: chatSession.profileData?.purpose || null,
       hobbies: chatSession.profileData?.hobbies || null
     };
@@ -315,16 +316,12 @@ export class ChatbotService {
       timestamp: new Date()
     };
 
-    // Atualiza a sessão local com a nova mensagem
+    // Atualiza a sessão local com a nova mensagem (apenas em memória)
     const updatedJsonSession = {
       ...session,
       messages: [...session.messages, userMessage],
       updatedAt: new Date()
     };
-
-    // Salva no DynamoDB
-    const updatedLegacySession = this.mapToLegacySession(updatedJsonSession);
-    await this.chatSessionRepository.saveSession(updatedLegacySession);
 
     try {
       // Envia indicador de "processando" para mostrar loading
@@ -375,12 +372,37 @@ export class ChatbotService {
     try {
       const response = await this.bedrockClient.send(command);
       let completeContent = '';
+      let stopReason = '';
 
       // Acumula todo o conteúdo sem enviar chunks
       for await (const chunk of response.stream!) {
         if (chunk.contentBlockDelta?.delta?.text) {
           completeContent += chunk.contentBlockDelta.delta.text;
         }
+        
+        // Captura o motivo de parada
+        if (chunk.messageStop?.stopReason) {
+          stopReason = chunk.messageStop.stopReason;
+          this.logger.debug(`🛑 Stream finalizado com stopReason: ${stopReason}`);
+        }
+        
+        // Log de metadata do chunk para debug
+        if (chunk.metadata) {
+          this.logger.debug(`� Metadata do chunk:`, JSON.stringify(chunk.metadata));
+        }
+      }
+
+      this.logger.log(`📝 Resposta completa: ${completeContent.length} chars`);
+      this.logger.debug(`Últimos 200 chars: ...${completeContent.slice(-200)}`);
+      
+      // Verifica se o stream foi interrompido prematuramente
+      if (stopReason && stopReason !== 'end_turn' && stopReason !== 'stop_sequence') {
+        this.logger.warn(`⚠️ Stream interrompido com stopReason: ${stopReason}`);
+      }
+      
+      // Verifica se a resposta parece incompleta
+      if (!completeContent.includes('}') || !completeContent.trim().endsWith('}')) {
+        this.logger.error(`❌ Resposta parece incompleta! Último char: "${completeContent.slice(-1)}"`);
       }
 
       // Processa resposta completa de uma vez
@@ -425,11 +447,34 @@ export class ChatbotService {
     }
 
     const jsonResponse = validation.parsedData;
+    
+    // CORREÇÃO: Calcula o stage correto baseado nos dados coletados, ignorando o que a LLM retornou
+    const correctStage = this.calculateCorrectStage(jsonResponse.data_collected, jsonResponse.is_final_recommendation);
+    
+    this.logger.log(`📊 Stage da LLM: ${jsonResponse.conversation_stage} → Stage correto: ${correctStage}`);
 
-    // Atualiza sessão com novos dados
+    // Log especial para recomendações finais
+    if (jsonResponse.is_final_recommendation) {
+      this.logger.log(`🎯 Recomendação final recebida: ${jsonResponse.data_collected.destination_name} (${jsonResponse.data_collected.destination_iata})`);
+    }
+
+    // � MERGE: Mescla dados antigos com novos (não sobrescreve com null)
+    const mergedData: CollectedData = {
+      origin_name: jsonResponse.data_collected.origin_name ?? session.collectedData.origin_name,
+      origin_iata: jsonResponse.data_collected.origin_iata ?? session.collectedData.origin_iata,
+      destination_name: jsonResponse.data_collected.destination_name ?? session.collectedData.destination_name,
+      destination_iata: jsonResponse.data_collected.destination_iata ?? session.collectedData.destination_iata,
+      activities: jsonResponse.data_collected.activities ?? session.collectedData.activities,
+      budget_in_brl: jsonResponse.data_collected.budget_in_brl ?? session.collectedData.budget_in_brl,
+      availability_months: jsonResponse.data_collected.availability_months ?? session.collectedData.availability_months,
+      purpose: jsonResponse.data_collected.purpose ?? session.collectedData.purpose,
+      hobbies: jsonResponse.data_collected.hobbies ?? session.collectedData.hobbies
+    };
+
+    // Atualiza sessão com novos dados (usando o stage CORRETO calculado)
     const updatedSession = await this.updateSession(session, {
-      currentStage: jsonResponse.conversation_stage,
-      collectedData: jsonResponse.data_collected,
+      currentStage: correctStage, // USA O STAGE CORRETO, NÃO O DA LLM
+      collectedData: mergedData, // USA DADOS MESCLADOS
       isComplete: jsonResponse.is_final_recommendation,
       hasRecommendation: jsonResponse.is_final_recommendation,
       updatedAt: new Date(),
@@ -489,11 +534,41 @@ export class ChatbotService {
       messages,
       system: [{ text: contextPrompt }],
       inferenceConfig: {
-        maxTokens: 1000,
+        maxTokens: 4096, // Aumentado para garantir resposta completa
         temperature: 0.2,
         topP: 0.6
       }
     };
+  }
+
+  /**
+   * Calcula o stage correto baseado nos dados coletados
+   * Ignora o que a LLM retornou e usa lógica determinística
+   */
+  private calculateCorrectStage(data: CollectedData, isFinalRecommendation: boolean): ConversationStage {
+    if (isFinalRecommendation) {
+      return 'recommendation_ready';
+    }
+    
+    // Verifica qual é o próximo dado que precisa ser coletado
+    if (!data.origin_name || !data.origin_iata) {
+      return 'collecting_origin';
+    }
+    if (!data.budget_in_brl) {
+      return 'collecting_budget';
+    }
+    if (!data.availability_months || data.availability_months.length === 0) {
+      return 'collecting_availability';
+    }
+    if (!data.activities || data.activities.length === 0) {
+      return 'collecting_activities';
+    }
+    if (!data.purpose) {
+      return 'collecting_purpose';
+    }
+    
+    // Se tem todos os dados, deveria estar pronto para recomendação
+    return 'recommendation_ready';
   }
 
   /**
