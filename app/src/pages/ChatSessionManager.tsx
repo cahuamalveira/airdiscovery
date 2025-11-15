@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
     Box,
     Container,
@@ -30,6 +30,8 @@ import {
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { generateChatId } from '@/utils/chatUtils';
+import { useSessionHistory } from '@/hooks/useSessionHistory';
+import HistoryPanel from '@/components/HistoryPanel';
 
 interface ChatSession {
     sessionId: string;
@@ -45,7 +47,7 @@ interface ChatSession {
  * ChatSessionManager - Componente para gerenciar sessões de chat
  * 
  * Funcionalidades:
- * - Lista sessões existentes do usuário
+ * - Lista sessões existentes do usuário (via API do DynamoDB)
  * - Permite criar nova sessão
  * - Permite navegar para sessão existente
  * - Permite deletar sessões antigas
@@ -53,37 +55,20 @@ interface ChatSession {
 const ChatSessionManager: React.FC = () => {
     const navigate = useNavigate();
     const { user } = useAuth();
+    
+    // Hook para buscar histórico via API
+    const { sessions: apiSessions, loading: apiLoading, error: apiError, refetch } = useSessionHistory();
+    
     const [sessions, setSessions] = useState<ChatSession[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [createDialogOpen, setCreateDialogOpen] = useState(false);
     const [newSessionTitle, setNewSessionTitle] = useState('');
     const [creatingSession, setCreatingSession] = useState(false);
+    const [selectedSessionId, setSelectedSessionId] = useState<string | undefined>();
 
-    // Carrega sessões do usuário
-    useEffect(() => {
-        loadSessions();
-    }, []);
-
-    const loadSessions = async () => {
-        try {
-            setLoading(true);
-            setError(null);
-            
-            // TODO: Implementar chamada API para buscar sessões do usuário
-            // Por enquanto, usar dados mockados e localStorage
-            const mockSessions = await loadSessionsFromStorage();
-            setSessions(mockSessions);
-        } catch (err) {
-            console.error('Error loading sessions:', err);
-            setError('Erro ao carregar sessões de chat');
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    // Carrega sessões do localStorage (temporário até integração com API)
-    const loadSessionsFromStorage = async (): Promise<ChatSession[]> => {
+    // ✅ FIX: Memoizar loadSessionsFromStorage para evitar recriação
+    const loadSessionsFromStorage = useCallback(async (): Promise<ChatSession[]> => {
         const sessions: ChatSession[] = [];
         
         for (let i = 0; i < localStorage.length; i++) {
@@ -109,7 +94,41 @@ const ChatSessionManager: React.FC = () => {
         }
         
         return sessions.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+    }, []); // ✅ Sem dependências, função estável
+
+    // Atualiza sessões quando os dados da API chegam
+    useEffect(() => {
+        // ✅ FIX: Função async dentro do useEffect para evitar warnings
+        const updateSessions = async () => {
+            if (apiSessions && apiSessions.length > 0) {
+                const mappedSessions: ChatSession[] = apiSessions.map(session => ({
+                    sessionId: session.sessionId,
+                    title: session.summary.substring(0, 50) + '...',
+                    createdAt: session.startTime.toISOString(),
+                    updatedAt: session.lastUpdated.toISOString(),
+                    messageCount: session.messageCount,
+                    isActive: true,
+                    lastMessage: session.summary
+                }));
+                setSessions(mappedSessions);
+            } else if (!apiLoading && !apiError) {
+                // Fallback para localStorage se API não retornar nada
+                const localSessions = await loadSessionsFromStorage();
+                setSessions(localSessions);
+            }
+            setLoading(apiLoading);
+            setError(apiError);
+        };
+
+        updateSessions();
+    }, [apiSessions, apiLoading, apiError, loadSessionsFromStorage]); // ✅ Todas as dependências incluídas
+
+    const loadSessions = async () => {
+        // Agora usa refetch do hook
+        refetch();
     };
+
+    // ✅ loadSessionsFromStorage agora está definido acima com useCallback
 
     const handleCreateNewSession = async () => {
         try {
@@ -207,8 +226,22 @@ const ChatSessionManager: React.FC = () => {
                 </Button>
             </Box>
 
-            {/* Sessions Grid */}
-            {sessions.length > 0 ? (
+            {/* Histórico usando o novo componente HistoryPanel */}
+            {apiSessions && apiSessions.length > 0 && (
+                <Box mb={4}>
+                    <HistoryPanel
+                        sessions={apiSessions}
+                        loading={apiLoading}
+                        error={apiError}
+                        onRefresh={refetch}
+                        onSessionSelect={handleOpenSession}
+                        selectedSessionId={selectedSessionId}
+                    />
+                </Box>
+            )}
+
+            {/* Sessions Grid (mantido para compatibilidade) */}
+            {sessions.length > 0 && !apiSessions.length ? (
                 <Grid container spacing={3}>
                     {sessions.map((session) => (
                         <Grid item xs={12} sm={6} md={4} key={session.sessionId}>
