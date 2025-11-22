@@ -208,7 +208,7 @@ const ConfirmationPage: React.FC = () => {
               {new Intl.NumberFormat('pt-BR', {
                 style: 'currency',
                 currency: booking.currency || 'BRL'
-              }).format(booking.totalAmount / 100)}
+              }).format(booking.totalAmount)}
             </Typography>
           </Box>
         </CardContent>

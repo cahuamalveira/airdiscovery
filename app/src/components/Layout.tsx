@@ -51,6 +51,11 @@ const Layout: React.FC<{ isAuthenticated: boolean, user: AuthUser | null, logout
                                 Lista de Desejos
                             </Button>
                         )}
+                        {isAuthenticated && (
+                            <Button color="inherit" component={Link} to="/minhas-reservas">
+                                Minhas Reservas
+                            </Button>
+                        )}
                         {isAuthenticated && isAdmin && (
                             <Button color="inherit" component={Link} to="/admin">
                                 Admin

@@ -30,6 +30,7 @@ import FlightPurchase from './pages/FlightPurchase';
 import CheckoutPage from './pages/CheckoutPage';
 import ConfirmationPage from './pages/ConfirmationPage';
 import Wishlist from './pages/Wishlist';
+import BookingHistoryPage from './pages/BookingHistoryPage';
 import ChatSessionManager from './pages/ChatSessionManager';
 import AdminDashboard from './pages/AdminDashboard';
 import NotFound from './pages/NotFound';
@@ -108,6 +109,7 @@ const AppContent: React.FC = () => {
                             <Route path="confirmation/:bookingId" element={<ConfirmationPage />} />
                             <Route path="voos/selecionar/:flightId/:date" element={<FlightPurchase />} />
                             <Route path="wishlist" element={<Wishlist />} />
+                            <Route path="minhas-reservas" element={<BookingHistoryPage />} />
                             <Route path="chat" element={<ChatSessionManager />} />
                             <Route path="chat/session/:sessionId" element={<ChatPageV2WithErrorBoundary />} />
                             <Route path="admin" element={<AdminDashboard />} />

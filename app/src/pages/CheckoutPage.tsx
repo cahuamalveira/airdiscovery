@@ -81,15 +81,14 @@ const CheckoutPage: React.FC = () => {
 
   // Hooks customizados
   const { createBooking, loading: bookingLoading } = useBooking();
-  const { createPixPreference, pixData, paymentStatus, loading: pixLoading } = usePixPayment();
+  const { createPixPreference, pixData, paymentStatus } = usePixPayment();
   const {
     activeStep,
     steps,
     handleNext,
     handleBack,
     handleStepClick,
-    isStepClickable,
-    goToStep
+    isStepClickable
   } = useCheckoutSteps();
 
   // Buscar dados do voo pelo ID interno
@@ -97,12 +96,7 @@ const CheckoutPage: React.FC = () => {
 
   // Verificar se temos os dados necessários
   useEffect(() => {
-    console.log('FlightId from URL params:', flightId);
-    console.log('FlightId type:', typeof flightId);
-    console.log('FlightId is falsy:', !flightId);
-    
     if (!flightId) {
-      console.error('No flightId provided, redirecting to flights page');
       navigate('/voos');
       return;
     }
@@ -135,11 +129,9 @@ const CheckoutPage: React.FC = () => {
 
         if (composition && composition.adults > 0) {
           setPassengerComposition(composition);
-          console.log('Passenger composition loaded:', composition);
         } else {
           // Default to single passenger if no composition found
           setPassengerComposition({ adults: 1, children: null });
-          console.log('No passenger composition found, using default single passenger');
         }
       } catch (error) {
         console.error('Error fetching passenger composition:', error);
@@ -171,10 +163,7 @@ const CheckoutPage: React.FC = () => {
 
   // Generate passenger types array from composition
   const passengerTypes = useMemo((): PassengerType[] => {
-    console.log('[CheckoutPage] Generating passengerTypes from composition:', passengerComposition);
-    
     if (!passengerComposition) {
-      console.log('[CheckoutPage] No passenger composition, returning empty array');
       return [];
     }
 
@@ -184,21 +173,16 @@ const CheckoutPage: React.FC = () => {
     for (let i = 0; i < passengerComposition.adults; i++) {
       types.push({ index: types.length, type: 'adult' });
     }
-    console.log('[CheckoutPage] Added adults, types array:', types);
 
     // Add children
-    if (passengerComposition.children) {
-      for (const child of passengerComposition.children) {
-        types.push({
-          index: types.length,
-          type: child.age <= 2 ? 'infant' : 'child',
-          age: child.age
-        });
-      }
-      console.log('[CheckoutPage] Added children, final types array:', types);
+    const childrenCount = passengerComposition.children || 0;
+    for (let i = 0; i < childrenCount; i++) {
+      types.push({
+        index: types.length,
+        type: 'child'
+      });
     }
 
-    console.log('[CheckoutPage] Final passengerTypes array length:', types.length);
     return types;
   }, [passengerComposition]);
 
@@ -219,14 +203,8 @@ const CheckoutPage: React.FC = () => {
 
   // Função para lidar com envio do formulário de passageiro
   const handlePassengerSubmit = async (data: PassengerFormData | PassengerFormData[]) => {
-    console.log('handlePassengerSubmit called with data:', data);
-    console.log('Current flightId:', flightId);
-    console.log('Current flightOffer:', flightOffer);
-    
     if (!flightId || !flightOffer) {
       console.error('Dados do voo não disponíveis');
-      console.error('flightId:', flightId);
-      console.error('flightOffer:', flightOffer);
       return;
     }
 
@@ -235,7 +213,6 @@ const CheckoutPage: React.FC = () => {
       // TODO: Update createBooking to handle multiple passengers
       const primaryPassenger = Array.isArray(data) ? data[0] : data;
       const booking = await createBooking(flightId, flightOffer, primaryPassenger);
-      console.log('Booking created successfully:', booking);
       setBookingData(booking);
       handleNext();
     } catch (error) {
@@ -243,18 +220,7 @@ const CheckoutPage: React.FC = () => {
     }
   };
 
-  // Função para processar pagamento
-  const processPayment = async () => {
-    if (!bookingData) return;
-    console.log({ bookingData });
-    try {
-      await createPixPreference(bookingData);
-      // setShowQrCodeDialog(true);
-      // Removido handleNext() - só avança quando pagamento for aprovado
-    } catch (error) {
-      console.error('Erro ao processar pagamento:', error);
-    }
-  };
+
 
   // Funções personalizadas para passar bookingData para os hooks
   const handleCustomStepClick = (stepIndex: number) => {
@@ -358,22 +324,13 @@ const CheckoutPage: React.FC = () => {
                       {passengerComposition && (
                         <Typography variant="body2" sx={{ mt: 1 }}>
                           {passengerComposition.adults} adulto{passengerComposition.adults > 1 ? 's' : ''}
-                          {passengerComposition.children && passengerComposition.children.length > 0 && (
-                            <>, {passengerComposition.children.length} criança{passengerComposition.children.length > 1 ? 's' : ''}</>
+                          {passengerComposition.children && passengerComposition.children > 0 && (
+                            <>, {passengerComposition.children} criança{passengerComposition.children > 1 ? 's' : ''}</>
                           )}
                         </Typography>
                       )}
                     </Alert>
                   )}
-                  
-                  {(() => {
-                    console.log('[CheckoutPage] Rendering PassengerForm with props:', {
-                      passengerCount,
-                      passengerTypes,
-                      passengerTypesLength: passengerTypes?.length
-                    });
-                    return null;
-                  })()}
                   
                   <PassengerForm
                     onSubmit={handlePassengerSubmit}
@@ -409,14 +366,11 @@ const CheckoutPage: React.FC = () => {
               amount={parseFloat(flightOffer.price.total)}
               description={`Voo ${flightOffer.itineraries[0].segments[0].departure.iataCode} → ${flightOffer.itineraries[0].segments[flightOffer.itineraries[0].segments.length - 1].arrival.iataCode}`}
               paymentStatus={paymentStatus}
-              onPaymentSuccess={(paymentIntent: any) => {
-                console.log('Pagamento aprovado:', paymentIntent);
-                // setPaymentStatus('success'); // Será atualizado via webhook
+              onPaymentSuccess={() => {
                 handleNext();
               }}
               onPaymentError={(error: any) => {
                 console.error('Erro no pagamento:', error);
-                // setPaymentStatus('failed'); // Status de erro será gerenciado pelo componente
               }}
             />
           )}
