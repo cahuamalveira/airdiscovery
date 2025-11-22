@@ -312,19 +312,42 @@ export class BookingService {
     if (!createBookingDto.passengers || createBookingDto.passengers.length === 0) {
       throw new BadRequestException('Ao menos um passageiro é obrigatório');
     }
+
+    // Count adults and infants
+    let adultCount = 0;
+    let infantCount = 0;
+
     // Validar dados de cada passageiro
     for (const p of createBookingDto.passengers) {
-      // Validar idade
-      const birthDate = new Date(p.birthDate);
-      const today = new Date();
-      const age = today.getFullYear() - birthDate.getFullYear();
-      if (age < 18 || age > 120) {
-        throw new BadRequestException('Passageiro deve ter entre 18 e 120 anos');
+      // Validar idade usando o método calculateAge
+      const age = this.calculateAge(p.birthDate);
+      
+      if (age < 0 || age > 120) {
+        throw new BadRequestException(`Idade inválida para passageiro ${p.firstName}`);
       }
+
+      // Count adults (age >= 12) and infants (age < 2)
+      if (age >= 12) {
+        adultCount++;
+      }
+      if (age < 2) {
+        infantCount++;
+      }
+
       // Validar CPF
       if (!this.isValidCPF(p.document)) {
-        throw new BadRequestException('CPF inválido');
+        throw new BadRequestException(`CPF inválido para passageiro ${p.firstName}`);
       }
+    }
+
+    // Validate at least one adult
+    if (adultCount === 0) {
+      throw new BadRequestException('Ao menos um adulto é obrigatório');
+    }
+
+    // Validate infant count doesn't exceed adult count
+    if (infantCount > adultCount) {
+      throw new BadRequestException('Número de bebês não pode exceder número de adultos');
     }
   }
 
@@ -346,6 +369,22 @@ export class BookingService {
         `Transição de status inválida: ${currentStatus} -> ${newStatus}`
       );
     }
+  }
+
+  /**
+   * Calculate age from birth date considering month and day
+   */
+  private calculateAge(birthDate: string): number {
+    const birth = new Date(birthDate);
+    const today = new Date();
+    let age = today.getFullYear() - birth.getFullYear();
+    const monthDiff = today.getMonth() - birth.getMonth();
+    
+    if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birth.getDate())) {
+      age--;
+    }
+    
+    return age;
   }
 
   /**

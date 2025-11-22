@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import React, { useEffect, useState, useMemo } from 'react';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Container,
   Typography,
@@ -26,6 +26,8 @@ import {
 import { useAuth } from '@/contexts/AuthContext';
 import { AmadeusFlightOffer, AmadeusDictionaries } from '@/hooks/useFlightSearch';
 import { useFlight } from '@/hooks/useFlight';
+import { PassengerComposition } from '@/types/json-chat';
+import { useHttpInterceptor } from '@/utils/httpInterceptor';
 
 // Componentes do checkout
 import {
@@ -35,7 +37,8 @@ import {
   PassengerForm,
   BookingConfirmation,
   type BookingData,
-  type PassengerFormData
+  type PassengerFormData,
+  type PassengerType
 } from '@/components/checkout';
 import { PaymentSection } from '@/components/checkout/PaymentSectionNew';
 
@@ -63,12 +66,18 @@ interface PixPreferenceResponse {
  */
 const CheckoutPage: React.FC = () => {
   const { flightId } = useParams<{ flightId: string }>();
+  const [searchParams] = useSearchParams();
+  const sessionId = searchParams.get('sessionId');
   const navigate = useNavigate();
   const { user } = useAuth();
+  const httpInterceptor = useHttpInterceptor();
 
   // Estados do componente
   const [bookingData, setBookingData] = useState<BookingData | null>(null);
   const [showQrCodeDialog, setShowQrCodeDialog] = useState(false);
+  const [passengerComposition, setPassengerComposition] = useState<PassengerComposition | null>(null);
+  const [loadingComposition, setLoadingComposition] = useState<boolean>(false);
+  const [compositionError, setCompositionError] = useState<string | null>(null);
 
   // Hooks customizados
   const { createBooking, loading: bookingLoading } = useBooking();
@@ -99,6 +108,52 @@ const CheckoutPage: React.FC = () => {
     }
   }, [flightId, navigate]);
 
+  // Fetch passenger composition from chat session
+  useEffect(() => {
+    const fetchPassengerComposition = async () => {
+      if (!sessionId) {
+        console.log('No sessionId provided, using default single passenger');
+        setPassengerComposition({ adults: 1, children: null });
+        return;
+      }
+
+      setLoadingComposition(true);
+      setCompositionError(null);
+
+      try {
+        const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+        const response = await httpInterceptor.get(
+          `${apiUrl}/sessions/collected-data/${sessionId}`
+        );
+
+        if (!response.ok) {
+          throw new Error(`Failed to fetch session data: ${response.statusText}`);
+        }
+
+        const data = await response.json();
+        const composition = data.collectedData?.passenger_composition;
+
+        if (composition && composition.adults > 0) {
+          setPassengerComposition(composition);
+          console.log('Passenger composition loaded:', composition);
+        } else {
+          // Default to single passenger if no composition found
+          setPassengerComposition({ adults: 1, children: null });
+          console.log('No passenger composition found, using default single passenger');
+        }
+      } catch (error) {
+        console.error('Error fetching passenger composition:', error);
+        setCompositionError('Não foi possível carregar os dados dos passageiros');
+        // Default to single passenger on error
+        setPassengerComposition({ adults: 1, children: null });
+      } finally {
+        setLoadingComposition(false);
+      }
+    };
+
+    fetchPassengerComposition();
+  }, [sessionId, httpInterceptor]);
+
   // Converter dados internos para formato compatível com componentes existentes
   const flightOffer = React.useMemo((): AmadeusFlightOffer | null => {
     if (!flight || !flight.amadeusOfferPayload) {
@@ -114,6 +169,44 @@ const CheckoutPage: React.FC = () => {
     return undefined;
   }, []);
 
+  // Generate passenger types array from composition
+  const passengerTypes = useMemo((): PassengerType[] => {
+    console.log('[CheckoutPage] Generating passengerTypes from composition:', passengerComposition);
+    
+    if (!passengerComposition) {
+      console.log('[CheckoutPage] No passenger composition, returning empty array');
+      return [];
+    }
+
+    const types: PassengerType[] = [];
+
+    // Add adults
+    for (let i = 0; i < passengerComposition.adults; i++) {
+      types.push({ index: types.length, type: 'adult' });
+    }
+    console.log('[CheckoutPage] Added adults, types array:', types);
+
+    // Add children
+    if (passengerComposition.children) {
+      for (const child of passengerComposition.children) {
+        types.push({
+          index: types.length,
+          type: child.age <= 2 ? 'infant' : 'child',
+          age: child.age
+        });
+      }
+      console.log('[CheckoutPage] Added children, final types array:', types);
+    }
+
+    console.log('[CheckoutPage] Final passengerTypes array length:', types.length);
+    return types;
+  }, [passengerComposition]);
+
+  // Calculate total passenger count
+  const passengerCount = useMemo(() => {
+    return passengerTypes.length;
+  }, [passengerTypes]);
+
   // Navegação para confirmação apenas quando pagamento for aprovado
   useEffect(() => {
     if (paymentStatus === 'success' && bookingData) {
@@ -125,7 +218,7 @@ const CheckoutPage: React.FC = () => {
   }, [paymentStatus, bookingData, navigate]);
 
   // Função para lidar com envio do formulário de passageiro
-  const handlePassengerSubmit = async (data: PassengerFormData) => {
+  const handlePassengerSubmit = async (data: PassengerFormData | PassengerFormData[]) => {
     console.log('handlePassengerSubmit called with data:', data);
     console.log('Current flightId:', flightId);
     console.log('Current flightOffer:', flightOffer);
@@ -138,7 +231,10 @@ const CheckoutPage: React.FC = () => {
     }
 
     try {
-      const booking = await createBooking(flightId, flightOffer, data);
+      // For now, use the first passenger data for single booking
+      // TODO: Update createBooking to handle multiple passengers
+      const primaryPassenger = Array.isArray(data) ? data[0] : data;
+      const booking = await createBooking(flightId, flightOffer, primaryPassenger);
       console.log('Booking created successfully:', booking);
       setBookingData(booking);
       handleNext();
@@ -170,12 +266,12 @@ const CheckoutPage: React.FC = () => {
   };
 
   // Loading state
-  if (flightLoading) {
+  if (flightLoading || loadingComposition) {
     return (
       <Container maxWidth="lg" sx={{ py: 4, textAlign: 'center' }}>
         <CircularProgress />
         <Typography variant="h6" sx={{ mt: 2 }}>
-          Carregando dados do voo...
+          {flightLoading ? 'Carregando dados do voo...' : 'Carregando dados dos passageiros...'}
         </Typography>
       </Container>
     );
@@ -228,18 +324,35 @@ const CheckoutPage: React.FC = () => {
         {/* Coluna principal */}
         <Box sx={{ flex: '1 1 65%', minWidth: '300px' }}>
           {activeStep === 0 && (
-            <PassengerForm
-              onSubmit={handlePassengerSubmit}
-              loading={bookingLoading}
-              defaultValues={{
-                firstName: user?.name?.split(' ')[0] || '',
-                lastName: user?.name?.split(' ').slice(1).join(' ') || '',
-                email: user?.email || '',
-                phone: '',
-                document: '',
-                birthDate: ''
-              }}
-            />
+            <>
+              {compositionError && (
+                <Alert severity="warning" sx={{ mb: 2 }}>
+                  {compositionError}
+                </Alert>
+              )}
+              {(() => {
+                console.log('[CheckoutPage] Rendering PassengerForm with props:', {
+                  passengerCount,
+                  passengerTypes,
+                  passengerTypesLength: passengerTypes?.length
+                });
+                return null;
+              })()}
+              <PassengerForm
+                onSubmit={handlePassengerSubmit}
+                loading={bookingLoading}
+                passengerCount={passengerCount}
+                passengerTypes={passengerTypes}
+                defaultValues={{
+                  firstName: user?.name?.split(' ')[0] || '',
+                  lastName: user?.name?.split(' ').slice(1).join(' ') || '',
+                  email: user?.email || '',
+                  phone: '',
+                  document: '',
+                  birthDate: ''
+                }}
+              />
+            </>
           )}
 
           {activeStep === 1 && bookingData && (

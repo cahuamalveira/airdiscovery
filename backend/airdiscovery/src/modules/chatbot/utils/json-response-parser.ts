@@ -208,7 +208,8 @@ export class JsonResponseParser {
           budget_in_brl: null,
           availability_months: null,
           purpose: null,
-          hobbies: null
+          hobbies: null,
+          passenger_composition: null
         },
         next_question_key: 'origin',
         assistant_message: assistantMessage,
@@ -324,6 +325,27 @@ export class JsonResponseParser {
       const stageValidation = this.validateConversationStage(data.conversation_stage);
       if (!stageValidation.isValid) {
         return stageValidation;
+      }
+
+      // Preserva button_options se presente (campo opcional)
+      if (data.button_options) {
+        if (!Array.isArray(data.button_options)) {
+          console.warn('⚠️ button_options deve ser um array, ignorando');
+          delete data.button_options;
+        } else {
+          // Valida estrutura dos botões
+          const validButtons = data.button_options.every((btn: any) => 
+            btn && typeof btn === 'object' && 
+            typeof btn.label === 'string' && 
+            typeof btn.value === 'string'
+          );
+          if (!validButtons) {
+            console.warn('⚠️ button_options com estrutura inválida, ignorando');
+            delete data.button_options;
+          } else {
+            console.log('✅ button_options preservado:', data.button_options.length, 'botões');
+          }
+        }
       }
 
       return {

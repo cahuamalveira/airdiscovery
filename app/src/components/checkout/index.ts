@@ -8,4 +8,4 @@ export { PaymentSectionV2 } from './PaymentSectionV2';
 
 // Types
 export type { BookingData } from './types';
-export type { PassengerFormData } from './PassengerForm';
+export type { PassengerFormData, PassengerType } from './PassengerForm';

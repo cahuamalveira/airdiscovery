@@ -100,7 +100,8 @@ export const useJsonSocketConnection = ({ isOpen, user, chatId }: UseJsonSocketC
             content: response.content,
             role: 'assistant' as const,
             timestamp: new Date(),
-            jsonData: response.jsonData
+            jsonData: response.jsonData,
+            buttonOptions: response.jsonData?.button_options
           };
           
           dispatch({ type: 'ADD_MESSAGE', payload: assistantMessage });

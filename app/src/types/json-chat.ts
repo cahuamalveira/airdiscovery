@@ -4,12 +4,30 @@
 
 export type ConversationStage = 
   | 'collecting_origin' 
-  | 'collecting_budget' 
+  | 'collecting_budget'
+  | 'collecting_passengers'
+  | 'collecting_availability'
   | 'collecting_activities' 
   | 'collecting_purpose' 
   | 'collecting_hobbies' 
   | 'recommendation_ready'
   | 'error';
+
+/**
+ * Child passenger information
+ */
+export interface ChildPassenger {
+  readonly age: number;
+  readonly isPaying: boolean;
+}
+
+/**
+ * Passenger composition for multi-passenger bookings
+ */
+export interface PassengerComposition {
+  readonly adults: number;
+  readonly children: readonly ChildPassenger[] | null;
+}
 
 export interface CollectedTravelData {
   readonly origin_name: string | null;
@@ -18,8 +36,18 @@ export interface CollectedTravelData {
   readonly destination_iata: string | null;
   readonly activities: readonly string[] | null;
   readonly budget_in_brl: number | null;
+  readonly availability_months: readonly string[] | null;
   readonly purpose: string | null;
   readonly hobbies: readonly string[] | null;
+  readonly passenger_composition: PassengerComposition | null;
+}
+
+/**
+ * Button option for interactive chat responses
+ */
+export interface ButtonOption {
+  readonly label: string;
+  readonly value: string;
 }
 
 /**
@@ -31,6 +59,7 @@ export interface ChatbotJsonResponse {
   readonly next_question_key: string | null;
   readonly assistant_message: string;
   readonly is_final_recommendation: boolean;
+  readonly button_options?: readonly ButtonOption[];
 }
 
 /**
@@ -43,6 +72,7 @@ export interface JsonChatMessage {
   readonly timestamp: Date;
   readonly jsonData?: ChatbotJsonResponse;
   readonly isStreaming?: boolean;
+  readonly buttonOptions?: readonly ButtonOption[];
 }
 
 /**

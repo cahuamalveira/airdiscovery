@@ -9,6 +9,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { ChatSessionRepository } from './repositories/chat-session.repository';
+import { ChatbotService } from './chatbot.service';
 import { CurrentUser } from '../../common/decorators/auth.decorators';
 import { AuthenticatedRequest } from '../../common/middlewares/auth.middleware';
 import {
@@ -34,6 +35,7 @@ export class SessionsController {
 
   constructor(
     private readonly chatSessionRepository: ChatSessionRepository,
+    private readonly chatbotService: ChatbotService,
   ) {}
 
   /**
@@ -168,6 +170,60 @@ export class SessionsController {
       this.logger.error(`Error fetching session ${sessionId}:`, error);
       throw new HttpException(
         'Failed to fetch session details',
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  /**
+   * Retorna dados coletados (collectedData) de uma sessão JSON
+   * GET /api/sessions/collected-data/:sessionId
+   * 
+   * @param sessionId - ID da sessão
+   * @param user - Usuário autenticado (extraído do JWT)
+   * @returns Dados coletados da sessão incluindo passenger_composition
+   */
+  @Get('collected-data/:sessionId')
+  async getCollectedData(
+    @Param('sessionId') sessionId: string,
+    @CurrentUser() user: AuthenticatedRequest['user'],
+  ) {
+    try {
+      this.logger.log(`Fetching collected data for session: ${sessionId}`);
+
+      // Busca a sessão JSON usando o chatbot service
+      const jsonSession = await this.chatbotService.getChatSession(sessionId);
+
+      if (!jsonSession) {
+        throw new NotFoundException(`Session ${sessionId} not found`);
+      }
+
+      // Validação de segurança: usuário só pode acessar suas próprias sessões
+      if (user?.sub !== jsonSession.userId) {
+        this.logger.warn(
+          `User ${user?.sub} attempted to access session ${sessionId} owned by ${jsonSession.userId}`,
+        );
+        throw new ForbiddenException(
+          'You can only access your own chat sessions',
+        );
+      }
+
+      this.logger.log(`Successfully fetched collected data for session ${sessionId}`);
+
+      return {
+        sessionId: jsonSession.sessionId,
+        collectedData: jsonSession.collectedData,
+      };
+    } catch (error) {
+      if (
+        error instanceof NotFoundException ||
+        error instanceof ForbiddenException
+      ) {
+        throw error;
+      }
+      this.logger.error(`Error fetching collected data for session ${sessionId}:`, error);
+      throw new HttpException(
+        'Failed to fetch collected data',
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }

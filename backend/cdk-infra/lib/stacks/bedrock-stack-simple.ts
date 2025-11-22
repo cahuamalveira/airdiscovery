@@ -68,6 +68,9 @@ export class BedrockStack extends cdk.Stack {
       })
     );
 
+
+    
+
     // Outputs
     new cdk.CfnOutput(this, 'NovaModelArn', {
       value: this.modelArn,

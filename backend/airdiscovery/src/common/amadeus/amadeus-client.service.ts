@@ -1,5 +1,7 @@
 import { Injectable, Logger, HttpException, HttpStatus } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
+import { PassengerValidationUtil } from '../../modules/chatbot/utils/passenger-validation.util';
+import { ERROR_MESSAGES } from '../../modules/chatbot/constants/error-messages.constant';
 
 interface AmadeusTokenResponse {
   access_token: string;
@@ -192,9 +194,26 @@ export class AmadeusClientService {
         departureDate: string;
         returnDate?: string;
         adults: number;
+        children?: number;
+        infants?: number;
         nonStop?: boolean;
         max?: number;
     }): Promise<AmadeusFlightSearchResponse> {
+        // Validate passenger counts using centralized validation
+        const validation = PassengerValidationUtil.validateFlightSearchParams(
+            params.adults,
+            params.children,
+            params.infants
+        );
+
+        if (!validation.isValid) {
+            this.logger.error(`Validação de parâmetros falhou: ${validation.errors.join(', ')}`);
+            throw new HttpException(
+                validation.errors.join('; '),
+                HttpStatus.BAD_REQUEST
+            );
+        }
+
         try {
             const token = await this.getAccessToken();
             
@@ -209,6 +228,14 @@ export class AmadeusClientService {
 
             if (params.returnDate) {
                 searchParams.append('returnDate', params.returnDate);
+            }
+
+            if (params.children && params.children > 0) {
+                searchParams.append('children', params.children.toString());
+            }
+
+            if (params.infants && params.infants > 0) {
+                searchParams.append('infants', params.infants.toString());
             }
 
             if (params.nonStop) {
@@ -241,8 +268,28 @@ export class AmadeusClientService {
                     );
                 }
                 
+                // Parse Amadeus error response for better error messages
+                let userMessage: string = ERROR_MESSAGES.AMADEUS_SEARCH_ERROR;
+                try {
+                    const errorData = JSON.parse(errorText);
+                    if (errorData.errors && errorData.errors.length > 0) {
+                        const firstError = errorData.errors[0];
+                        // Map common Amadeus errors to user-friendly messages
+                        if (firstError.code === 'INVALID_PASSENGER_COUNT') {
+                            userMessage = ERROR_MESSAGES.INVALID_PASSENGER_COUNT as string;
+                        } else if (firstError.code === 'TOO_MANY_INFANTS') {
+                            userMessage = ERROR_MESSAGES.TOO_MANY_INFANTS as string;
+                        } else if (firstError.detail) {
+                            userMessage = `Erro na busca: ${firstError.detail}`;
+                        }
+                    }
+                } catch (parseError) {
+                    // If we can't parse the error, use default message
+                    this.logger.warn('Não foi possível parsear erro do Amadeus');
+                }
+                
                 throw new HttpException(
-                    `Erro na busca de voos: ${response.status}`,
+                    userMessage,
                     HttpStatus.BAD_REQUEST
                 );
             }
@@ -260,8 +307,9 @@ export class AmadeusClientService {
                 throw error;
             }
             
+            // Network or other unexpected errors
             throw new HttpException(
-                'Erro interno ao buscar voos',
+                ERROR_MESSAGES.AMADEUS_SEARCH_ERROR,
                 HttpStatus.INTERNAL_SERVER_ERROR
             );
         }

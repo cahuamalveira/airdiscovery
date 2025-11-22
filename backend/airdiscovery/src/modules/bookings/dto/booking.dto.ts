@@ -44,6 +44,10 @@ export class PassengerDataDto {
     message: 'Data de nascimento deve estar no formato AAAA-MM-DD',
   })
   birthDate: string;
+
+  @IsEnum(['adult', 'child', 'infant'])
+  @IsOptional()
+  passengerType?: 'adult' | 'child' | 'infant';
 }
 
 /**

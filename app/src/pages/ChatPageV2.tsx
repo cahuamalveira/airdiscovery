@@ -30,6 +30,7 @@ import { MessageInput } from '@/components/chat/MessageInput';
 import { MessageList } from '@/components/chat/MessageList';
 import { JsonChatProgress } from '@/components/chat/JsonChatProgress';
 import { JsonChatRecommendations } from '@/components/chat/JsonChatRecommendations';
+import { ChatButtons } from '@/components/chat/ChatButtons';
 import { useAuth } from '@/contexts/AuthContext';
 import { useJsonChatProgress, useJsonChatFormatters } from '@/hooks/useJsonChat';
 import { useJsonSocketConnection } from '@/hooks/useJsonSocketConnection';
@@ -55,6 +56,7 @@ const ChatPageV2: React.FC = () => {
     const { user } = useAuth();
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const [isOpen, setIsOpen] = useState(true);
+    const [hasActiveButtons, setHasActiveButtons] = useState(false);
 
     // Hook de conexão JSON - agora autocontido e completo
     const {
@@ -84,6 +86,16 @@ const ChatPageV2: React.FC = () => {
         }
     }, [state.messages]);
 
+    // Check if the last assistant message has button options
+    useEffect(() => {
+        const lastMessage = state.messages[state.messages.length - 1];
+        if (lastMessage?.role === 'assistant' && lastMessage.buttonOptions && lastMessage.buttonOptions.length > 0) {
+            setHasActiveButtons(true);
+        } else {
+            setHasActiveButtons(false);
+        }
+    }, [state.messages]);
+
     // Handle sessionId validation and redirection
     useEffect(() => {
         if (!sessionId) {
@@ -109,6 +121,18 @@ const ChatPageV2: React.FC = () => {
         }
     };
 
+    // Handle button click - send button label as user message and value to backend
+    const handleButtonClick = (value: string, label: string) => {
+        try {
+            // Hide buttons immediately after click
+            setHasActiveButtons(false);
+            // Send the button label as the user's message
+            sendMessage(label);
+        } catch (error) {
+            console.error('Failed to send button selection:', error);
+        }
+    };
+
     // Handle starting new chat
     const handleStartNewChat = async () => {
         try {
@@ -129,18 +153,61 @@ const ChatPageV2: React.FC = () => {
         console.log('Navigating to recommendations with context:', {
             origin: recommendation.origin.iata,
             destination: recommendation.destination.iata,
-            recommendation
+            recommendation,
+            collectedData: state.collectedData
         });
 
-        // Create travel params with defaults
-        const travelParams = createDefaultTravelParams(
-            recommendation.origin.iata,
-            recommendation.destination.iata
-        );
+        // Calculate total adults from passenger composition
+        const passengerComposition = state.collectedData.passenger_composition;
+        const adults = passengerComposition?.adults || 1;
+        
+        // Calculate departure date from availability_months
+        const availabilityMonths = state.collectedData.availability_months;
+        let departureDate: string | undefined;
+        
+        if (availabilityMonths && availabilityMonths.length > 0) {
+            // Use the first available month to calculate a departure date
+            const monthName = availabilityMonths[0];
+            const monthMap: Record<string, number> = {
+                'Janeiro': 0, 'Fevereiro': 1, 'Março': 2, 'Abril': 3,
+                'Maio': 4, 'Junho': 5, 'Julho': 6, 'Agosto': 7,
+                'Setembro': 8, 'Outubro': 9, 'Novembro': 10, 'Dezembro': 11
+            };
+            
+            const monthIndex = monthMap[monthName];
+            if (monthIndex !== undefined) {
+                const now = new Date();
+                const currentYear = now.getFullYear();
+                const currentMonth = now.getMonth();
+                
+                // If the month is in the past, use next year
+                const year = monthIndex < currentMonth ? currentYear + 1 : currentYear;
+                
+                // Set to the 15th of the month as a reasonable default
+                const date = new Date(year, monthIndex, 15);
+                departureDate = date.toISOString().split('T')[0];
+            }
+        }
+
+        // Create travel params with collected data
+        const travelParams = {
+            origin: recommendation.origin.iata,
+            destination: recommendation.destination.iata,
+            departureDate: departureDate || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+            adults,
+            nonStop: false
+        };
+
+        console.log('Travel params:', travelParams);
 
         // Navigate using utility function for consistent URL building
         const recommendationsUrl = createRecommendationsUrl(travelParams);
-        navigate(recommendationsUrl);
+        
+        // Add sessionId to URL for checkout to access passenger data
+        const urlWithSession = `${recommendationsUrl}&sessionId=${sessionId}`;
+        
+        console.log('Navigating to:', urlWithSession);
+        navigate(urlWithSession);
     };
 
     // Handle refresh/retry
@@ -341,42 +408,57 @@ const ChatPageV2: React.FC = () => {
                     >
                         {/* Messages Area */}
                         <Box sx={{ flexGrow: 1, overflow: 'auto', p: 2 }}>
-                            {state.messages.map((message: any) => (
-                                <Box key={message.id} sx={{ mb: 2 }}>
-                                    <Box
-                                        sx={{
-                                            display: 'flex',
-                                            justifyContent: message.role === 'user' ? 'flex-end' : 'flex-start',
-                                        }}
-                                    >
-                                        <Paper
-                                            elevation={1}
+                            {state.messages.map((message: any, index: number) => {
+                                const isLastMessage = index === state.messages.length - 1;
+                                const showButtons = isLastMessage && message.role === 'assistant' && message.buttonOptions && message.buttonOptions.length > 0;
+                                
+                                return (
+                                    <Box key={message.id} sx={{ mb: 2 }}>
+                                        <Box
                                             sx={{
-                                                p: 2,
-                                                maxWidth: '70%',
-                                                bgcolor: message.role === 'user' ? 'primary.main' : 'background.paper',
-                                                color: message.role === 'user' ? 'primary.contrastText' : 'text.primary',
-                                                borderRadius: 2,
+                                                display: 'flex',
+                                                justifyContent: message.role === 'user' ? 'flex-end' : 'flex-start',
                                             }}
                                         >
-                                            <Typography variant="body1">
-                                                {message.content}
-                                            </Typography>
-                                            <Typography variant="caption" sx={{ opacity: 0.7, display: 'block', mt: 0.5 }}>
-                                                {message.timestamp.toLocaleTimeString()}
-                                            </Typography>
-                                            
-                                            {/* Debug info para desenvolvimento */}
-                                            {message.role === 'assistant' && message.jsonData && process.env.NODE_ENV === 'development' && (
-                                                <Typography variant="caption" sx={{ opacity: 0.5, display: 'block', mt: 0.5, fontSize: '0.7rem' }}>
-                                                    Estágio: {message.jsonData.conversation_stage} | 
-                                                    Próxima: {message.jsonData.next_question_key || 'N/A'}
-                                                </Typography>
-                                            )}
-                                        </Paper>
+                                            <Box sx={{ maxWidth: '70%' }}>
+                                                <Paper
+                                                    elevation={1}
+                                                    sx={{
+                                                        p: 2,
+                                                        bgcolor: message.role === 'user' ? 'primary.main' : 'background.paper',
+                                                        color: message.role === 'user' ? 'primary.contrastText' : 'text.primary',
+                                                        borderRadius: 2,
+                                                    }}
+                                                >
+                                                    <Typography variant="body1">
+                                                        {message.content}
+                                                    </Typography>
+                                                    <Typography variant="caption" sx={{ opacity: 0.7, display: 'block', mt: 0.5 }}>
+                                                        {message.timestamp.toLocaleTimeString()}
+                                                    </Typography>
+                                                    
+                                                    {/* Debug info para desenvolvimento */}
+                                                    {message.role === 'assistant' && message.jsonData && process.env.NODE_ENV === 'development' && (
+                                                        <Typography variant="caption" sx={{ opacity: 0.5, display: 'block', mt: 0.5, fontSize: '0.7rem' }}>
+                                                            Estágio: {message.jsonData.conversation_stage} | 
+                                                            Próxima: {message.jsonData.next_question_key || 'N/A'}
+                                                        </Typography>
+                                                    )}
+                                                </Paper>
+                                                
+                                                {/* Render buttons if this is the last assistant message with button options */}
+                                                {showButtons && (
+                                                    <ChatButtons
+                                                        options={message.buttonOptions}
+                                                        onButtonClick={handleButtonClick}
+                                                        disabled={!isReady || state.isTyping}
+                                                    />
+                                                )}
+                                            </Box>
+                                        </Box>
                                     </Box>
-                                </Box>
-                            ))}
+                                );
+                            })}
 
                             {/* Typing indicator */}
                             {state.isTyping && (
@@ -393,8 +475,8 @@ const ChatPageV2: React.FC = () => {
                         {/* Scroll anchor */}
                         <div ref={messagesEndRef} />
 
-                        {/* Message Input */}
-                        {state.sessionId && !state.isComplete && (
+                        {/* Message Input - Hidden when buttons are displayed */}
+                        {state.sessionId && !state.isComplete && !hasActiveButtons && (
                             <Box sx={{ p: 2, borderTop: `1px solid ${theme.palette.divider}` }}>
                                 <MessageInput
                                     onSendMessage={handleSendMessage}
@@ -405,6 +487,15 @@ const ChatPageV2: React.FC = () => {
                                             : progressInfo.nextStep || "Digite sua mensagem..."
                                     }
                                 />
+                            </Box>
+                        )}
+                        
+                        {/* Show hint when buttons are active */}
+                        {state.sessionId && !state.isComplete && hasActiveButtons && (
+                            <Box sx={{ p: 2, borderTop: `1px solid ${theme.palette.divider}`, textAlign: 'center' }}>
+                                <Typography variant="body2" color="text.secondary">
+                                    Selecione uma opção acima
+                                </Typography>
                             </Box>
                         )}
                     </Paper>

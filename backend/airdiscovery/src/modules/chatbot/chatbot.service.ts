@@ -25,6 +25,8 @@ import { ChatSession, UserProfile, ChatMessage } from './interfaces/chat.interfa
 import { JsonPromptBuilder } from './utils/json-prompt-builder';
 import { JsonResponseParser } from './utils/json-response-parser';
 import { convertAvailabilityToDateRange } from './utils/date-converter.util';
+import { PassengerValidationUtil } from './utils/passenger-validation.util';
+import { ERROR_MESSAGES } from './constants/error-messages.constant';
 
 /**
  * Nova implementação do ChatbotService focada em respostas JSON estruturadas
@@ -64,7 +66,8 @@ export class ChatbotService {
       timestamp: msg.timestamp
     }));
 
-    return {
+    // Store passenger composition in a custom field for backward compatibility
+    const session: any = {
       sessionId: jsonSession.sessionId,
       userId: jsonSession.userId,
       messages,
@@ -76,15 +79,26 @@ export class ChatbotService {
       updatedAt: jsonSession.updatedAt,
       completedAt: jsonSession.completedAt?.toISOString(),
       questionsAsked: jsonSession.messages.filter(m => m.role === 'assistant').length,
-      totalQuestionsAvailable: 5,
+      totalQuestionsAvailable: 6, // Updated to 6 to include passengers
       interviewEfficiency: jsonSession.isComplete ? 1.0 : 0.5
     };
+
+    // Store passenger composition as a custom field
+    if (jsonSession.collectedData.passenger_composition) {
+      session.passengerComposition = jsonSession.collectedData.passenger_composition;
+    }
+
+    return session;
   }
 
   /**
    * Converte ChatSession para JsonChatSession (para retornar da consulta)
    */
   private mapFromLegacySession(chatSession: ChatSession): JsonChatSession {
+    // Restore passenger composition from custom field if it exists
+    const sessionAny = chatSession as any;
+    const passengerComposition = sessionAny.passengerComposition || null;
+
     const collectedData: CollectedData = {
       origin_name: chatSession.profileData?.origin || null,
       origin_iata: null, // Precisará ser extraído ou inferido
@@ -92,6 +106,7 @@ export class ChatbotService {
       destination_iata: null,
       activities: chatSession.profileData?.activities || null,
       budget_in_brl: chatSession.profileData?.budget || null,
+      passenger_composition: passengerComposition, // Restore from custom field
       availability_months: chatSession.profileData?.availability_months || null,
       purpose: chatSession.profileData?.purpose || null,
       hobbies: chatSession.profileData?.hobbies || null
@@ -125,11 +140,12 @@ export class ChatbotService {
     const stageToIndex = {
       'collecting_origin': 0,
       'collecting_budget': 1,
-      'collecting_availability': 2,
-      'collecting_activities': 3,
-      'collecting_purpose': 4,
-      'collecting_hobbies': 5,
-      'recommendation_ready': 6,
+      'collecting_passengers': 2,
+      'collecting_availability': 3,
+      'collecting_activities': 4,
+      'collecting_purpose': 5,
+      'collecting_hobbies': 6,
+      'recommendation_ready': 7,
       'error': 0
     };
     return stageToIndex[stage] || 0;
@@ -141,7 +157,9 @@ export class ChatbotService {
   private getStageFromQuestionIndex(index: number): ConversationStage {
     const indexToStage: ConversationStage[] = [
       'collecting_origin',
-      'collecting_budget', 
+      'collecting_budget',
+      'collecting_passengers',
+      'collecting_availability',
       'collecting_activities',
       'collecting_purpose',
       'collecting_hobbies',
@@ -188,6 +206,7 @@ export class ChatbotService {
         destination_iata: null,
         activities: null,
         budget_in_brl: null,
+        passenger_composition: null,
         availability_months: null,
         purpose: null,
         hobbies: null
@@ -447,6 +466,64 @@ export class ChatbotService {
     }
 
     const jsonResponse = validation.parsedData;
+
+    // Validate passenger composition if it was collected in this response
+    if (jsonResponse.data_collected.passenger_composition) {
+      const passengerValidation = PassengerValidationUtil.validatePassengerComposition(
+        jsonResponse.data_collected.passenger_composition
+      );
+
+      if (!passengerValidation.isValid) {
+        this.logger.warn(`Validação de passageiros falhou: ${passengerValidation.errors.join(', ')}`);
+        
+        // Return error response to allow user to correct
+        const errorResponse: ChatbotJsonResponse = {
+          conversation_stage: session.currentStage, // Stay in same stage
+          data_collected: session.collectedData, // Don't save invalid data
+          next_question_key: 'passengers',
+          assistant_message: `Desculpe, há um problema com os dados dos passageiros:\n\n${passengerValidation.errors.join('\n')}\n\nPor favor, informe novamente a composição de passageiros.`,
+          is_final_recommendation: false
+        };
+
+        return {
+          content: errorResponse.assistant_message,
+          isComplete: true,
+          sessionId: session.sessionId,
+          jsonData: errorResponse,
+          metadata: { error: passengerValidation.errors.join('; ') }
+        };
+      }
+
+      // Validate budget if both budget and passengers are available
+      const budget = jsonResponse.data_collected.budget_in_brl || session.collectedData.budget_in_brl;
+      if (budget) {
+        const budgetValidation = PassengerValidationUtil.validateBudgetForPassengers(
+          budget,
+          jsonResponse.data_collected.passenger_composition
+        );
+
+        if (!budgetValidation.isValid) {
+          this.logger.warn(`Validação de orçamento falhou: ${budgetValidation.errors.join(', ')}`);
+          
+          // Return error response
+          const errorResponse: ChatbotJsonResponse = {
+            conversation_stage: 'collecting_budget', // Go back to budget collection
+            data_collected: session.collectedData, // Don't save invalid data
+            next_question_key: 'budget',
+            assistant_message: `${budgetValidation.errors.join('\n')}\n\nPor favor, informe um orçamento maior ou reduza o número de passageiros.`,
+            is_final_recommendation: false
+          };
+
+          return {
+            content: errorResponse.assistant_message,
+            isComplete: true,
+            sessionId: session.sessionId,
+            jsonData: errorResponse,
+            metadata: { error: budgetValidation.errors.join('; ') }
+          };
+        }
+      }
+    }
     
     // CORREÇÃO: Calcula o stage correto baseado nos dados coletados, ignorando o que a LLM retornou
     const correctStage = this.calculateCorrectStage(jsonResponse.data_collected, jsonResponse.is_final_recommendation);
@@ -466,6 +543,7 @@ export class ChatbotService {
       destination_iata: jsonResponse.data_collected.destination_iata ?? session.collectedData.destination_iata,
       activities: jsonResponse.data_collected.activities ?? session.collectedData.activities,
       budget_in_brl: jsonResponse.data_collected.budget_in_brl ?? session.collectedData.budget_in_brl,
+      passenger_composition: jsonResponse.data_collected.passenger_composition ?? session.collectedData.passenger_composition,
       availability_months: jsonResponse.data_collected.availability_months ?? session.collectedData.availability_months,
       purpose: jsonResponse.data_collected.purpose ?? session.collectedData.purpose,
       hobbies: jsonResponse.data_collected.hobbies ?? session.collectedData.hobbies
@@ -551,11 +629,16 @@ export class ChatbotService {
     }
     
     // Verifica qual é o próximo dado que precisa ser coletado
+    // Stage progression: origin → budget → passengers → availability → activities → purpose → hobbies
     if (!data.origin_name || !data.origin_iata) {
       return 'collecting_origin';
     }
     if (!data.budget_in_brl) {
       return 'collecting_budget';
+    }
+    // NEW: Check for passenger composition before proceeding to availability
+    if (!data.passenger_composition || !data.passenger_composition.adults || data.passenger_composition.adults === 0) {
+      return 'collecting_passengers';
     }
     if (!data.availability_months || data.availability_months.length === 0) {
       return 'collecting_availability';
@@ -647,6 +730,8 @@ export class ChatbotService {
     departureDate: string;
     returnDate: string;
     adults: number;
+    children?: number;
+    infants?: number;
   } | null> {
     const session = await this.getChatSession(sessionId);
     if (!session || !session.collectedData) {
@@ -666,12 +751,60 @@ export class ChatbotService {
       tripDuration
     );
 
-    return {
+    const composition = data.passenger_composition;
+
+    // Calculate children and infants from passenger composition
+    let childrenCount = 0;
+    let infantsCount = 0;
+    
+    if (composition?.children) {
+      for (const child of composition.children) {
+        if (child.age <= 2) {
+          infantsCount++;
+        } else {
+          childrenCount++;
+        }
+      }
+    }
+
+    const adults = composition?.adults || 1; // Default to 1 adult for backward compatibility
+
+    // Validate flight search parameters before returning
+    const validation = PassengerValidationUtil.validateFlightSearchParams(
+      adults,
+      childrenCount > 0 ? childrenCount : undefined,
+      infantsCount > 0 ? infantsCount : undefined
+    );
+
+    if (!validation.isValid) {
+      this.logger.error(`Parâmetros de busca inválidos: ${validation.errors.join(', ')}`);
+      throw new Error(`${ERROR_MESSAGES.AMADEUS_INVALID_PARAMS}: ${validation.errors.join(', ')}`);
+    }
+
+    const params: {
+      originLocationCode: string;
+      destinationLocationCode: string;
+      departureDate: string;
+      returnDate: string;
+      adults: number;
+      children?: number;
+      infants?: number;
+    } = {
       originLocationCode: data.origin_iata,
       destinationLocationCode: data.destination_iata,
       departureDate: dateRange.departureDate,
       returnDate: dateRange.returnDate,
-      adults: 1 // Pode ser parametrizado futuramente
+      adults
     };
+
+    // Only add children and infants fields if count > 0
+    if (childrenCount > 0) {
+      params.children = childrenCount;
+    }
+    if (infantsCount > 0) {
+      params.infants = infantsCount;
+    }
+
+    return params;
   }
 }

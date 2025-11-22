@@ -5,6 +5,7 @@
 export type ConversationStage = 
   | 'collecting_origin' 
   | 'collecting_budget' 
+  | 'collecting_passengers'
   | 'collecting_availability'
   | 'collecting_activities' 
   | 'collecting_purpose' 
@@ -15,11 +16,36 @@ export type ConversationStage =
 export type NextQuestionKey = 
   | 'origin' 
   | 'budget' 
+  | 'passengers'
   | 'availability'
   | 'activities' 
   | 'purpose' 
   | 'hobbies' 
   | null;
+
+/**
+ * Interface para representar um passageiro criança
+ */
+export interface ChildPassenger {
+  readonly age: number;
+  readonly isPaying: boolean; // true se idade > 2 anos
+}
+
+/**
+ * Interface para composição de passageiros
+ */
+export interface PassengerComposition {
+  readonly adults: number;
+  readonly children: readonly ChildPassenger[] | null;
+}
+
+/**
+ * Interface para opções de botão interativo
+ */
+export interface ButtonOption {
+  readonly label: string;
+  readonly value: string;
+}
 
 export interface CollectedData {
   readonly origin_name: string | null;
@@ -31,6 +57,7 @@ export interface CollectedData {
   readonly availability_months: readonly string[] | null;
   readonly purpose: string | null;
   readonly hobbies: readonly string[] | null;
+  readonly passenger_composition: PassengerComposition | null;
 }
 
 /**
@@ -42,6 +69,7 @@ export interface ChatbotJsonResponse {
   readonly next_question_key: NextQuestionKey;
   readonly assistant_message: string;
   readonly is_final_recommendation: boolean;
+  readonly button_options?: readonly ButtonOption[];
 }
 
 /**

@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import { useMemo, useState, useEffect } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
   Container,
@@ -29,6 +29,8 @@ import {
   SearchDestinationParams
 } from '../hooks/useFlightSearch';
 import { useFlightSelection } from '../hooks/useFlightSelection';
+import { PassengerComposition } from '../types/json-chat';
+import { useHttpInterceptor } from '../utils/httpInterceptor';
 
 /**
  * Página de Recomendações de Voos - Versão com React Query
@@ -38,12 +40,74 @@ function RecommendationsPage() {
   const navigate = useNavigate();
   const { origin, destination } = useParams<{ origin: string; destination: string }>();
   const [searchParams] = useSearchParams();
+  const httpInterceptor = useHttpInterceptor();
+
+  // State for passenger composition
+  const [passengerComposition, setPassengerComposition] = useState<PassengerComposition | null>(null);
+  const [loadingComposition, setLoadingComposition] = useState<boolean>(false);
+  const [compositionError, setCompositionError] = useState<string | null>(null);
 
   // Extrair query params
   const departureDate = searchParams.get('departureDate') || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
   const returnDate = searchParams.get('returnDate');
   const adults = parseInt(searchParams.get('adults') || '1');
   const nonStop = searchParams.get('nonStop') === 'true';
+  const sessionId = searchParams.get('sessionId'); // Get sessionId from URL
+
+  // Fetch passenger composition from session
+  useEffect(() => {
+    const fetchPassengerComposition = async () => {
+      if (!sessionId) {
+        console.log('No sessionId provided, skipping passenger composition fetch');
+        return;
+      }
+
+      setLoadingComposition(true);
+      setCompositionError(null);
+
+      try {
+        const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
+        const response = await httpInterceptor.get(`${baseUrl}/sessions/collected-data/${sessionId}`);
+        
+        if (!response.ok) {
+          throw new Error(`Failed to fetch session data: ${response.statusText}`);
+        }
+
+        const data = await response.json();
+        console.log('Fetched session data:', data);
+        
+        if (data.collectedData?.passenger_composition) {
+          setPassengerComposition(data.collectedData.passenger_composition);
+          console.log('Passenger composition loaded:', data.collectedData.passenger_composition);
+        } else {
+          console.log('No passenger composition found in session data');
+        }
+      } catch (error) {
+        console.error('Error fetching passenger composition:', error);
+        setCompositionError('Não foi possível carregar informações dos passageiros');
+      } finally {
+        setLoadingComposition(false);
+      }
+    };
+
+    fetchPassengerComposition();
+  }, [sessionId, httpInterceptor]);
+
+  // Calculate total paying passengers (adults + children > 2 years)
+  const payingPassengers = useMemo(() => {
+    if (!passengerComposition) {
+      return 1; // Default to 1 if no composition available
+    }
+
+    let count = passengerComposition.adults;
+    
+    if (passengerComposition.children) {
+      // Count children over 2 years old as paying passengers
+      count += passengerComposition.children.filter(child => child.age > 2).length;
+    }
+
+    return count;
+  }, [passengerComposition]);
 
   // Preparar parâmetros de busca usando useMemo para evitar recriações
   const flightSearchParams = useMemo((): SearchDestinationParams | null => {
@@ -126,8 +190,13 @@ function RecommendationsPage() {
         return;
       }
       
-      // Navegar para checkout com o flightId interno
-      navigate(`/checkout/${flightId}`);
+      // Navegar para checkout com o flightId interno e sessionId
+      const checkoutUrl = sessionId 
+        ? `/checkout/${flightId}?sessionId=${sessionId}`
+        : `/checkout/${flightId}`;
+      
+      console.log('Navigating to checkout:', checkoutUrl);
+      navigate(checkoutUrl);
     } catch (error) {
       console.error('Erro ao selecionar voo:', error);
       // TODO: Mostrar toast de erro para o usuário

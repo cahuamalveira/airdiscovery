@@ -7,12 +7,14 @@ import { AuthStack } from '../lib/stacks/auth-stack';
 import { DatabaseStack } from '../lib/stacks/database-stack';
 import { CacheStack } from '../lib/stacks/cache-stack';
 import { BedrockStack } from '../lib/stacks/bedrock-stack';
+import { BedrockKbStack } from '../lib/stacks/bedrock-kb-stack';
+import { OpenSearchStack } from '../lib/stacks/opensearch-stack';
 
 const app = new cdk.App();
 
 // Environment configuration
 const env = { 
-  account: '855455101180', 
+  account: '422429904833', 
   region: 'us-east-2' 
 };
 
@@ -61,12 +63,35 @@ const bedrockStack = new BedrockStack(app, 'AirDiscoveryBedrockStack', {
   env,
 });
 
+// OpenSearch infra (documents bucket + ingestion role)
+const opensearchStack = new OpenSearchStack(app, 'AirDiscoveryOpenSearchStack', {
+  env,
+  collectionName: 'airdiscovery-collection',
+});
+
+// 3. Bedrock Knowledge Base & Agent (CloudFormation L1 resources)
+// Requires OpenSearch collection to exist (create vector index in console or via automation) before KB will be usable.
+// Allow passing the OpenSearch collection ARN via CDK context or an environment variable so the
+// same source can be used in CI without editing the file.
+
+// Import the OpenSearch collection ARN exported by the OpenSearch stack to create a proper
+// cross-stack CloudFormation reference. This avoids manual code edits and ensures BedrockKbStack
+// receives the exact ARN from the OpenSearch deployment.
+const importedCollectionArn = cdk.Fn.importValue('AirDiscoveryOpenSearchCollectionArn');
+
+const bedrockKb = new BedrockKbStack(app, 'AirDiscoveryBedrockKbStack', {
+  env,
+  collectionArn: importedCollectionArn,
+  bucketArn: opensearchStack.documentsBucket.bucketArn,
+  bedrockRoleArn: bedrockStack.bedrockExecutionRole.roleArn,
+});
 // Dependencies
 authStack.addDependency(vpcStack);
 frontendStack.addDependency(vpcStack);
 frontendStack.addDependency(authStack);
 databaseStack.addDependency(vpcStack);
 cacheStack.addDependency(vpcStack);
-// bedrockStack não tem dependências - pode ser deployado independentemente
+bedrockKb.addDependency(opensearchStack);
+bedrockKb.addDependency(bedrockStack);
 
 app.synth();

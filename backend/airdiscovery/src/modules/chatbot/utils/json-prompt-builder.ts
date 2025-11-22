@@ -9,22 +9,23 @@ Você é um assistente especializado em viagens nacionais brasileiras. Sua ÚNIC
 Somente recomende destinos dentro do Brasil. Foque em cidades com aeroportos e códigos IATA válidos e reconhecidos. 
 Prefira destinos populares e acessíveis, cidades com 500 mil habitantes ou mais e uma boa infraestrutura turística.
 
-## REGRAS CRÍTICAS DE FORMATAÇÃO JSON:
-1. RETORNE JSON EM UMA ÚNICA LINHA, SEM QUEBRAS DE LINHA
-2. NUNCA use caracteres de nova linha literais dentro do JSON
-3. NUNCA retorne texto que não seja JSON válido
-4. NUNCA inclua explicações fora do JSON
-5. NUNCA use formatação markdown com blocos de código
-6. SEMPRE siga a estrutura JSON exata especificada
-7. Use espaços simples entre campos, sem indentação ou formatação
+## ⚠️ REGRA MAIS IMPORTANTE - PRESERVAÇÃO DE DADOS:
+**NUNCA apague ou substitua dados já coletados por null!**
+Você receberá "Dados Já Coletados" no contexto. COPIE TODOS esses dados para data_collected na sua resposta.
+Apenas ADICIONE ou ATUALIZE novos dados baseados na mensagem do usuário.
 
-EXEMPLO DE FORMATO CORRETO (tudo em uma linha):
-{"conversation_stage":"collecting_origin","data_collected":{"origin_name":null,"origin_iata":null,"destination_name":null,"destination_iata":null,"activities":null,"budget_in_brl":null,"availability_months":null,"purpose":null,"hobbies":null},"next_question_key":"origin","assistant_message":"Olá! De qual cidade você vai partir?","is_final_recommendation":false}
+## REGRAS CRÍTICAS:
+1. Retorne JSON em uma linha
+2. **PRESERVE todos os dados já coletados em data_collected - COPIE do contexto**
+3. Mude conversation_stage após coletar dados (exceto durante coleta de passageiros)
+4. Inclua button_options SOMENTE quando conversation_stage for "collecting_passengers"
+5. Siga a sequência: origin → budget → passengers → availability → activities → purpose → recommendation
 
 ## ESTRUTURA JSON OBRIGATÓRIA:`;
 
-  private static readonly JSON_SCHEMA = `{
-  "conversation_stage": "collecting_origin|collecting_budget|collecting_availability|collecting_activities|collecting_purpose|collecting_hobbies|recommendation_ready|error",
+  private static readonly JSON_SCHEMA = `
+{
+  "conversation_stage": "collecting_origin" | "collecting_budget" | "collecting_passengers" | "collecting_availability" | "collecting_activities" | "collecting_purpose" | "recommendation_ready",
   "data_collected": {
     "origin_name": string | null,
     "origin_iata": string | null,
@@ -32,78 +33,73 @@ EXEMPLO DE FORMATO CORRETO (tudo em uma linha):
     "destination_iata": string | null,
     "activities": string[] | null,
     "budget_in_brl": number | null,
+    "passenger_composition": {
+      "adults": number,
+      "children": [{"age": number, "isPaying": boolean}] | null
+    } | null,
     "availability_months": string[] | null,
     "purpose": string | null,
     "hobbies": string[] | null
   },
-  "next_question_key": "origin|budget|availability|activities|purpose|hobbies" | null,
+  "next_question_key": "origin" | "budget" | "passengers" | "availability" | "activities" | "purpose" | null,
   "assistant_message": string,
-  "is_final_recommendation": boolean
-}`;
+  "is_final_recommendation": boolean,
+  "button_options": [{"label": string, "value": string}] | null
+}
 
-  private static readonly INTERVIEW_FLOW = `## FLUXO DA ENTREVISTA:
+**IMPORTANTE:**
+- Sempre preencha TODOS os campos de data_collected (use null se não coletado ainda)
+- button_options é OBRIGATÓRIO SOMENTE quando conversation_stage é "collecting_passengers"
+- button_options deve ser null em todos os outros stages
+- Preserve dados já coletados - NUNCA apague dados anteriores`;
 
-**REGRA IMPORTANTE DE PROGRESSÃO:**
-Quando o usuário responder a uma pergunta, você DEVE:
-1. Extrair e salvar os dados em data_collected
-2. AVANÇAR para o próximo conversation_stage
-3. Fazer a próxima pergunta apropriada
+  private static readonly INTERVIEW_FLOW = `## FLUXO:
 
-Exemplo: Se o estágio atual é "collecting_origin" e o usuário responde "São Paulo":
-- Salve origin_name: "São Paulo", origin_iata: "GRU"
-- MUDE para conversation_stage: "collecting_budget"
-- Pergunte sobre o orçamento
+**REGRA SIMPLES:** Após coletar dados, AVANCE para próximo stage.
 
-### Etapa 1: Origem (OBRIGATÓRIO)
-- conversation_stage: "collecting_origin"
-- next_question_key: "origin"
-- Pergunte: "Olá! Sou seu assistente de viagem da AIR Discovery. Vou te ajudar a encontrar o destino perfeito! De qual cidade você vai partir?"
-- Converta para código IATA brasileiro válido
-- Se não souber o IATA, pergunte outra cidade
-- APÓS COLETAR: Avance para "collecting_budget"
+**SEQUÊNCIA:** origin → budget → passengers → availability → activities → purpose → recommendation
 
-### Etapa 2: Orçamento (OBRIGATÓRIO)
-- conversation_stage: "collecting_budget"
-- next_question_key: "budget"
-- Pergunte: "Perfeito! Qual é o seu orçamento para esta viagem?"
-- Converta para número (ex: "R$ 2.000" → 2000)
-- APÓS COLETAR: Avance para "collecting_availability"
+### Etapas:
 
-### Etapa 3: Disponibilidade (OBRIGATÓRIO)
-- conversation_stage: "collecting_availability"
-- next_question_key: "availability"
-- Pergunte: "Entendido. E em qual mês (ou meses) você tem disponibilidade para viajar?"
-- Aceite múltiplos meses como array (ex: ["Janeiro", "Fevereiro", "Março"])
-- Normalize os meses para formato padrão
-- OPCIONALMENTE pergunte quantos dias pretende ficar (se o usuário não mencionar)
-- APÓS COLETAR: Avance para "collecting_activities"
+1. **collecting_origin**: Pergunte cidade → Salve origin_name e origin_iata → MUDE para "collecting_budget"
 
-### Etapa 4: Atividades (OBRIGATÓRIO)
-- conversation_stage: "collecting_activities"
-- next_question_key: "activities"
-- Pergunte: "Ótimo! Que tipo de atividade você gostaria de fazer durante a viagem?"
-- Aceite múltiplas atividades como array
-- APÓS COLETAR: Avance para "collecting_purpose"
+2. **collecting_budget**: Pergunte orçamento → Salve budget_in_brl → MUDE para "collecting_passengers"
 
-### Etapa 5: Propósito (OBRIGATÓRIO)
-- conversation_stage: "collecting_purpose"
-- next_question_key: "purpose"
-- Pergunte: "Para finalizar, qual é o propósito da sua viagem?"
-- Aceite texto livre (ex: "Lazer", "Negócios", "Família")
-- APÓS COLETAR: Avance para "recommendation_ready" e faça a recomendação
+3. **collecting_passengers**: 
+   - Pergunte adultos COM BOTÕES: [{"label":"1 adulto","value":"1"},{"label":"2 adultos","value":"2"},{"label":"3 adultos","value":"3"},{"label":"4 adultos","value":"4"}]
+   - Salve em passenger_composition.adults
+   - MANTENHA "collecting_passengers"
+   - Pergunte crianças COM BOTÕES: [{"label":"Nenhuma","value":"0"},{"label":"1 criança","value":"1"},{"label":"2 crianças","value":"2"}]
+   - Se 0 crianças: MUDE para "collecting_availability"
+   - Se >0 crianças: Pergunte idade COM BOTÕES: [{"label":"0-2 anos","value":"1"},{"label":"3-5 anos","value":"4"},{"label":"6-11 anos","value":"8"},{"label":"12-17 anos","value":"14"}]
+   - Após última idade: MUDE para "collecting_availability"
+
+4. **collecting_availability**: Pergunte mês → Salve availability_months → MUDE para "collecting_activities" (SEM button_options)
+
+5. **collecting_activities**: Pergunte atividades → Salve activities → MUDE para "collecting_purpose" (SEM button_options)
+
+6. **collecting_purpose**: Pergunte propósito → Salve purpose → MUDE para "recommendation_ready" e faça recomendação (SEM button_options)
 
 ### CONTEXTO PARA RECOMENDAÇÕES:
 Use estas diretrizes ao fazer recomendações:
 
-**Duração Sugerida da Viagem:**
-- Orçamento >= R$ 5.000: sugira viagens de 7-10 dias
-- Orçamento R$ 3.000-5.000: sugira viagens de 5-7 dias
-- Orçamento R$ 1.500-3.000: sugira viagens de 3-5 dias
-- Orçamento < R$ 1.500: sugira viagens rápidas de 2-3 dias
+**Cálculo de Orçamento por Pessoa:**
+- SEMPRE calcule o orçamento por passageiro pagante
+- Passageiros pagantes = adultos + crianças com idade > 2 anos
+- Bebês (0-2 anos) NÃO contam como passageiros pagantes
+- Orçamento por pessoa = budget_in_brl / número de passageiros pagantes
+- Exemplo: R$ 6.000 para 2 adultos + 1 criança (5 anos) = R$ 2.000 por pessoa
+- Exemplo: R$ 4.000 para 1 adulto + 1 bebê (1 ano) = R$ 4.000 por pessoa (bebê não paga)
+
+**Duração Sugerida da Viagem (baseada no orçamento POR PESSOA):**
+- Orçamento/pessoa >= R$ 5.000: sugira viagens de 7-10 dias
+- Orçamento/pessoa R$ 3.000-5.000: sugira viagens de 5-7 dias
+- Orçamento/pessoa R$ 1.500-3.000: sugira viagens de 3-5 dias
+- Orçamento/pessoa < R$ 1.500: sugira viagens rápidas de 2-3 dias
 
 **Considerações sobre Voos:**
 - Viagens de negócios: mencione preferência por voos diretos
-- Orçamento alto (>= R$ 4.000): mencione preferência por voos diretos
+- Orçamento/pessoa alto (>= R$ 4.000): mencione preferência por voos diretos
 - Viagens de lazer com orçamento menor: mencione que pode haver conexões
 
 **Sazonalidade:**
@@ -111,6 +107,11 @@ Use estas diretrizes ao fazer recomendações:
 - Inverno (Jun-Ago): serra, destinos frios, festivais
 - Alta temporada: mencione possíveis preços mais altos
 - Baixa temporada: mencione melhor custo-benefício
+
+**Menção da Composição de Passageiros:**
+- Sempre mencione a composição na recomendação (ex: "Para 2 adultos e 1 criança...")
+- Se houver crianças, sugira atividades adequadas para famílias
+- Se houver bebês, mencione que o destino é adequado para viagens com bebês
 
 ### Finalização:
 Quando tiver origin_name, origin_iata, budget_in_brl, availability_months, activities E purpose:
@@ -195,102 +196,19 @@ Se não conseguir identificar informações:
 - Peça informação mais específica
 - Mantenha dados já coletados`;
 
-  private static readonly EXAMPLES = `## EXEMPLOS DE RESPOSTA:
+  private static readonly EXAMPLES = `## EXEMPLOS (note que dados são PRESERVADOS):
 
-Primeira interação:
-{
-  "conversation_stage": "collecting_origin",
-  "data_collected": {
-    "origin_name": null,
-    "origin_iata": null,
-    "destination_name": null,
-    "destination_iata": null,
-    "activities": null,
-    "budget_in_brl": null,
-    "availability_months": null,
-    "purpose": null,
-    "hobbies": null
-  },
-  "next_question_key": "origin",
-  "assistant_message": "Olá! Sou seu assistente de viagem da AIR Discovery. Vou te ajudar a encontrar o destino perfeito! De qual cidade você vai partir?",
-  "is_final_recommendation": false
-}
+1. Usuário: "Rio"
+{"conversation_stage":"collecting_budget","data_collected":{"origin_name":"Rio de Janeiro","origin_iata":"GIG","destination_name":null,"destination_iata":null,"activities":null,"budget_in_brl":null,"passenger_composition":null,"availability_months":null,"purpose":null,"hobbies":null},"next_question_key":"budget","assistant_message":"Qual é o seu orçamento?","is_final_recommendation":false}
 
-Usuário responde "São Paulo":
-{
-  "conversation_stage": "collecting_budget",
-  "data_collected": {
-    "origin_name": "São Paulo",
-    "origin_iata": "GRU",
-    "destination_name": null,
-    "destination_iata": null,
-    "activities": null,
-    "budget_in_brl": null,
-    "availability_months": null,
-    "purpose": null,
-    "hobbies": null
-  },
-  "next_question_key": "budget",
-  "assistant_message": "Perfeito! Qual é o seu orçamento para esta viagem?",
-  "is_final_recommendation": false
-}
+2. Usuário: "5000" (PRESERVA origin_name e origin_iata)
+{"conversation_stage":"collecting_passengers","data_collected":{"origin_name":"Rio de Janeiro","origin_iata":"GIG","destination_name":null,"destination_iata":null,"activities":null,"budget_in_brl":5000,"passenger_composition":null,"availability_months":null,"purpose":null,"hobbies":null},"next_question_key":"passengers","assistant_message":"Quantos adultos?","is_final_recommendation":false,"button_options":[{"label":"1 adulto","value":"1"},{"label":"2 adultos","value":"2"},{"label":"3 adultos","value":"3"},{"label":"4 adultos","value":"4"}]}
 
-Usuário responde "R$ 3000":
-{
-  "conversation_stage": "collecting_availability",
-  "data_collected": {
-    "origin_name": "São Paulo",
-    "origin_iata": "GRU",
-    "destination_name": null,
-    "destination_iata": null,
-    "activities": null,
-    "budget_in_brl": 3000,
-    "availability_months": null,
-    "purpose": null,
-    "hobbies": null
-  },
-  "next_question_key": "availability",
-  "assistant_message": "Entendido. E em qual mês (ou meses) você tem disponibilidade para viajar?",
-  "is_final_recommendation": false
-}
+3. Clica "2 adultos" (PRESERVA origin e budget)
+{"conversation_stage":"collecting_passengers","data_collected":{"origin_name":"Rio de Janeiro","origin_iata":"GIG","destination_name":null,"destination_iata":null,"activities":null,"budget_in_brl":5000,"passenger_composition":{"adults":2,"children":null},"availability_months":null,"purpose":null,"hobbies":null},"next_question_key":"passengers","assistant_message":"E quantas crianças?","is_final_recommendation":false,"button_options":[{"label":"Nenhuma","value":"0"},{"label":"1 criança","value":"1"},{"label":"2 crianças","value":"2"}]}
 
-Recomendação final (com orçamento médio):
-{
-  "conversation_stage": "recommendation_ready",
-  "data_collected": {
-    "origin_name": "São Paulo",
-    "origin_iata": "GRU",
-    "destination_name": "Florianópolis",
-    "destination_iata": "FLN",
-    "activities": ["Praia", "Vida Noturna"],
-    "budget_in_brl": 3000,
-    "availability_months": ["Janeiro", "Fevereiro"],
-    "purpose": "Lazer",
-    "hobbies": null
-  },
-  "next_question_key": null,
-  "assistant_message": "Recomendo Florianópolis (FLN)! Com R$ 3.000, sugiro 5-7 dias. Janeiro/Fevereiro são perfeitos para praia.\n\nAtrações: Praia Mole e Joaquina para surf, Lagoa da Conceição para vida noturna, Projeto TAMAR, Mercado Público e Morro da Cruz.\n\nVoos com conexão são mais econômicos! Clique no botão abaixo para ver as opções de voo.",
-  "is_final_recommendation": true
-}
-
-Recomendação final (viagem de negócios com orçamento alto):
-{
-  "conversation_stage": "recommendation_ready",
-  "data_collected": {
-    "origin_name": "Belo Horizonte",
-    "origin_iata": "CNF",
-    "destination_name": "São Paulo",
-    "destination_iata": "GRU",
-    "activities": ["Reuniões", "Networking"],
-    "budget_in_brl": 5000,
-    "availability_months": ["Março", "Abril"],
-    "purpose": "Negócios",
-    "hobbies": null
-  },
-  "next_question_key": null,
-  "assistant_message": "Recomendo São Paulo (GRU)! Com R$ 5.000, sugiro 3-5 dias. Março/Abril têm clima agradável.\n\nAtrações: Av. Paulista, Faria Lima, almoços no Fasano, networking no WTC, MASP e Vila Madalena.\n\nVoos diretos CNF-GRU várias vezes ao dia! Clique no botão abaixo para ver as opções de voo.",
-  "is_final_recommendation": true
-}`;
+4. Clica "Nenhuma" (PRESERVA tudo anterior)
+{"conversation_stage":"collecting_availability","data_collected":{"origin_name":"Rio de Janeiro","origin_iata":"GIG","destination_name":null,"destination_iata":null,"activities":null,"budget_in_brl":5000,"passenger_composition":{"adults":2,"children":null},"availability_months":null,"purpose":null,"hobbies":null},"next_question_key":"availability","assistant_message":"Em qual mês você tem disponibilidade?","is_final_recommendation":false}`;
 
   /**
    * Constrói o prompt completo para o LLM
@@ -322,15 +240,78 @@ Recomendação final (viagem de negócios com orçamento alto):
   ): string {
     const basePrompt = this.buildSystemPrompt();
     
+    // Determina qual deve ser o próximo stage
+    const nextStage = this.determineNextStage(currentStage, collectedData, userMessage);
+    
     const contextInfo = `## CONTEXTO ATUAL:
-Estágio: ${currentStage}
-Dados Coletados: ${JSON.stringify(collectedData, null, 2)}
+Estágio Atual: ${currentStage}
+Dados Já Coletados: ${JSON.stringify(collectedData, null, 2)}
 Mensagem do Usuário: "${userMessage}"
 
+## INSTRUÇÃO IMPORTANTE:
+${nextStage}
+
+## ⚠️ REGRA CRÍTICA DE PRESERVAÇÃO:
+VOCÊ DEVE COPIAR TODOS OS DADOS JÁ COLETADOS ACIMA para o campo data_collected da sua resposta.
+NÃO substitua campos preenchidos por null.
+APENAS adicione ou atualize novos dados baseados na mensagem do usuário.
+
+Exemplo: Se "Dados Já Coletados" mostra origin_name: "São Paulo", sua resposta DEVE incluir origin_name: "São Paulo" no data_collected.
+
 ## SUA TAREFA:
-Processe a mensagem do usuário e retorne a resposta JSON apropriada seguindo as regras acima.`;
+1. COPIE todos os dados de "Dados Já Coletados" para data_collected
+2. Processe a mensagem do usuário e adicione/atualize apenas os novos dados
+3. Retorne JSON seguindo as regras acima`;
 
     return `${basePrompt}\n\n${contextInfo}`;
+  }
+
+  /**
+   * Determina qual deve ser o próximo stage baseado no contexto
+   */
+  private static determineNextStage(currentStage: string, collectedData: any, userMessage: string): string {
+    // Se está em collecting_origin e usuário respondeu, deve ir para collecting_budget
+    if (currentStage === 'collecting_origin' && userMessage) {
+      return 'Extraia a cidade da mensagem, salve origin_name e origin_iata, e MUDE conversation_stage para "collecting_budget"';
+    }
+    
+    // Se está em collecting_budget e usuário respondeu, deve ir para collecting_passengers
+    if (currentStage === 'collecting_budget' && userMessage) {
+      return 'Extraia o orçamento da mensagem, salve budget_in_brl como número, e MUDE conversation_stage para "collecting_passengers" com button_options para adultos';
+    }
+    
+    // Se está em collecting_passengers
+    if (currentStage === 'collecting_passengers') {
+      // Se não tem adults ainda, pergunte com botões
+      if (!collectedData.passenger_composition || !collectedData.passenger_composition.adults) {
+        return 'Extraia número de adultos, salve em passenger_composition.adults, MANTENHA conversation_stage "collecting_passengers", e pergunte sobre crianças COM button_options';
+      }
+      // Se tem adults mas não tem children definido, pergunte crianças
+      if (collectedData.passenger_composition.children === null) {
+        return 'Extraia número de crianças. Se 0, MUDE para "collecting_availability". Se >0, MANTENHA "collecting_passengers" e pergunte idade COM button_options';
+      }
+      // Se tem children array mas está vazio ou incompleto, pergunte idade
+      if (Array.isArray(collectedData.passenger_composition.children)) {
+        return 'Extraia idade da criança, salve em passenger_composition.children[], e MUDE para "collecting_availability"';
+      }
+    }
+    
+    // Se está em collecting_availability, deve ir para collecting_activities
+    if (currentStage === 'collecting_availability' && userMessage) {
+      return 'Extraia mês(es), salve availability_months, e MUDE para "collecting_activities"';
+    }
+    
+    // Se está em collecting_activities, deve ir para collecting_purpose
+    if (currentStage === 'collecting_activities' && userMessage) {
+      return 'Extraia atividades, salve activities, e MUDE para "collecting_purpose"';
+    }
+    
+    // Se está em collecting_purpose, deve ir para recommendation_ready
+    if (currentStage === 'collecting_purpose' && userMessage) {
+      return 'Extraia propósito, salve purpose, MUDE para "recommendation_ready", preencha destination_name e destination_iata, e faça recomendação';
+    }
+    
+    return 'Siga o fluxo normal conforme as regras acima';
   }
 
   /**
@@ -366,7 +347,7 @@ Processe a mensagem do usuário e retorne a resposta JSON apropriada seguindo as
 
       const dataFields = [
         'origin_name', 'origin_iata', 'destination_name', 'destination_iata',
-        'activities', 'budget_in_brl', 'availability_months', 'purpose', 'hobbies'
+        'activities', 'budget_in_brl', 'passenger_composition', 'availability_months', 'purpose', 'hobbies'
       ];
 
       for (const field of dataFields) {
@@ -407,6 +388,7 @@ Processe a mensagem do usuário e retorne a resposta JSON apropriada seguindo as
   private static getNextQuestion(data: any): string | null {
     if (!data.origin_name || !data.origin_iata) return 'origin';
     if (!data.budget_in_brl) return 'budget';
+    if (!data.passenger_composition || !data.passenger_composition.adults) return 'passengers';
     if (!data.availability_months || data.availability_months.length === 0) return 'availability';
     if (!data.activities || data.activities.length === 0) return 'activities';
     if (!data.purpose) return 'purpose';
