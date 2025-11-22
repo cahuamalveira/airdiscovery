@@ -79,8 +79,20 @@ export const PassengerForm: React.FC<PassengerFormProps> = ({
   passengerCount,
   passengerTypes
 }) => {
+  console.log('[PassengerForm] Received props:', {
+    passengerCount,
+    passengerTypes,
+    passengerTypesLength: passengerTypes?.length,
+    hasPassengerTypes: !!passengerTypes,
+    defaultValues
+  });
+
   // Determina se é modo múltiplos passageiros
-  const isMultiPassenger = passengerTypes && passengerTypes.length > 0;
+  // Use passengerTypes if provided, otherwise fallback to passengerCount
+  const isMultiPassenger = (passengerTypes && passengerTypes.length > 0) || 
+                           (passengerCount && passengerCount > 1);
+  
+  console.log('[PassengerForm] isMultiPassenger:', isMultiPassenger);
   
   // Configuração do formulário para modo único
   const singleForm = useForm<PassengerFormData>({
@@ -98,19 +110,39 @@ export const PassengerForm: React.FC<PassengerFormProps> = ({
   });
 
   // Configuração do formulário para modo múltiplo
+  const multiFormDefaultValues = React.useMemo(() => {
+    const defaults = {
+      passengers: passengerTypes?.map((_, index) => {
+        // First passenger (primary) gets pre-filled with user info
+        if (index === 0) {
+          return {
+            firstName: defaultValues.firstName || '',
+            lastName: defaultValues.lastName || '',
+            email: defaultValues.email || '',
+            phone: defaultValues.phone || '',
+            document: defaultValues.document || '',
+            birthDate: defaultValues.birthDate || '',
+          };
+        }
+        // Other passengers get empty forms
+        return {
+          firstName: '',
+          lastName: '',
+          email: '',
+          phone: '',
+          document: '',
+          birthDate: '',
+        };
+      }) || []
+    };
+    console.log('[PassengerForm] multiForm defaultValues:', defaults);
+    return defaults;
+  }, [passengerTypes, defaultValues]);
+
   const multiForm = useForm<{ passengers: PassengerFormData[] }>({
     resolver: zodResolver(multiPassengerSchema),
     mode: 'onChange',
-    defaultValues: {
-      passengers: passengerTypes?.map(() => ({
-        firstName: '',
-        lastName: '',
-        email: '',
-        phone: '',
-        document: '',
-        birthDate: '',
-      })) || []
-    }
+    defaultValues: multiFormDefaultValues
   });
 
   // Função para formatar CPF
@@ -403,24 +435,39 @@ export const PassengerForm: React.FC<PassengerFormProps> = ({
 
   if (isMultiPassenger) {
     // Modo múltiplos passageiros
+    console.log('[PassengerForm] Rendering multi-passenger mode');
+    console.log('[PassengerForm] passengerTypes to render:', passengerTypes);
+    
     const { handleSubmit, formState: { isValid } } = multiForm;
+
+    // If passengerTypes is not provided but passengerCount is, generate default types
+    const typesToRender = passengerTypes || 
+      Array.from({ length: passengerCount || 1 }, (_, i) => ({
+        index: i,
+        type: 'adult' as const
+      }));
+    
+    console.log('[PassengerForm] typesToRender:', typesToRender);
 
     return (
       <Box>
         <form onSubmit={handleSubmit(handleMultiSubmit)}>
-          {passengerTypes!.map((passenger, index) => (
-            <Card key={index} elevation={2} sx={{ mb: 3 }}>
-              <CardContent>
-                <Box sx={{ display: 'flex', alignItems: 'center', mb: 3 }}>
-                  <PersonIcon color="primary" sx={{ mr: 1 }} />
-                  <Typography variant="h6" fontWeight="bold">
-                    {getPassengerLabel(passenger, index)}
-                  </Typography>
-                </Box>
-                {renderMultiPassengerFields(index)}
-              </CardContent>
-            </Card>
-          ))}
+          {typesToRender.map((passenger, index) => {
+            console.log(`[PassengerForm] Rendering passenger ${index}:`, passenger);
+            return (
+              <Card key={index} elevation={2} sx={{ mb: 3 }}>
+                <CardContent>
+                  <Box sx={{ display: 'flex', alignItems: 'center', mb: 3 }}>
+                    <PersonIcon color="primary" sx={{ mr: 1 }} />
+                    <Typography variant="h6" fontWeight="bold">
+                      {getPassengerLabel(passenger, index)}
+                    </Typography>
+                  </Box>
+                  {renderMultiPassengerFields(index)}
+                </CardContent>
+              </Card>
+            );
+          })}
           
           <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 3 }}>
             <Button
@@ -438,6 +485,7 @@ export const PassengerForm: React.FC<PassengerFormProps> = ({
   }
 
   // Modo passageiro único (compatibilidade com código existente)
+  console.log('[PassengerForm] Rendering single-passenger mode');
   const { handleSubmit, formState: { isValid } } = singleForm;
 
   return (

@@ -325,33 +325,72 @@ const CheckoutPage: React.FC = () => {
         <Box sx={{ flex: '1 1 65%', minWidth: '300px' }}>
           {activeStep === 0 && (
             <>
-              {compositionError && (
+              {compositionError && !loadingComposition && (
                 <Alert severity="warning" sx={{ mb: 2 }}>
-                  {compositionError}
+                  <Typography variant="body1" fontWeight="bold" gutterBottom>
+                    {compositionError}
+                  </Typography>
+                  <Typography variant="body2">
+                    Usando configuração padrão de 1 passageiro. Se você precisa adicionar mais passageiros, 
+                    por favor volte ao chat e especifique o número de viajantes.
+                  </Typography>
                 </Alert>
               )}
-              {(() => {
-                console.log('[CheckoutPage] Rendering PassengerForm with props:', {
-                  passengerCount,
-                  passengerTypes,
-                  passengerTypesLength: passengerTypes?.length
-                });
-                return null;
-              })()}
-              <PassengerForm
-                onSubmit={handlePassengerSubmit}
-                loading={bookingLoading}
-                passengerCount={passengerCount}
-                passengerTypes={passengerTypes}
-                defaultValues={{
-                  firstName: user?.name?.split(' ')[0] || '',
-                  lastName: user?.name?.split(' ').slice(1).join(' ') || '',
-                  email: user?.email || '',
-                  phone: '',
-                  document: '',
-                  birthDate: ''
-                }}
-              />
+              
+              {loadingComposition ? (
+                <Card elevation={2}>
+                  <CardContent>
+                    <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+                      <CircularProgress size={20} sx={{ mr: 2 }} />
+                      <Typography variant="body1">
+                        Carregando informações dos passageiros...
+                      </Typography>
+                    </Box>
+                  </CardContent>
+                </Card>
+              ) : (
+                <>
+                  {passengerCount > 0 && (
+                    <Alert severity="info" sx={{ mb: 2 }}>
+                      <Typography variant="body1" fontWeight="bold">
+                        Preencha os dados de {passengerCount} passageiro{passengerCount > 1 ? 's' : ''}
+                      </Typography>
+                      {passengerComposition && (
+                        <Typography variant="body2" sx={{ mt: 1 }}>
+                          {passengerComposition.adults} adulto{passengerComposition.adults > 1 ? 's' : ''}
+                          {passengerComposition.children && passengerComposition.children.length > 0 && (
+                            <>, {passengerComposition.children.length} criança{passengerComposition.children.length > 1 ? 's' : ''}</>
+                          )}
+                        </Typography>
+                      )}
+                    </Alert>
+                  )}
+                  
+                  {(() => {
+                    console.log('[CheckoutPage] Rendering PassengerForm with props:', {
+                      passengerCount,
+                      passengerTypes,
+                      passengerTypesLength: passengerTypes?.length
+                    });
+                    return null;
+                  })()}
+                  
+                  <PassengerForm
+                    onSubmit={handlePassengerSubmit}
+                    loading={bookingLoading}
+                    passengerCount={passengerCount}
+                    passengerTypes={passengerTypes}
+                    defaultValues={{
+                      firstName: user?.name?.split(' ')[0] || '',
+                      lastName: user?.name?.split(' ').slice(1).join(' ') || '',
+                      email: user?.email || '',
+                      phone: '',
+                      document: '',
+                      birthDate: ''
+                    }}
+                  />
+                </>
+              )}
             </>
           )}
 

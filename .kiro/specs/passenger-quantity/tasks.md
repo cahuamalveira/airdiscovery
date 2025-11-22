@@ -391,7 +391,9 @@
     - Ensure pricing matches what was shown in RecommendationsPage
     - _Requirements: 3.1, 3.2, 5.1_
 
-- [-] 12. Fix checkout passenger forms not rendering for all passengers
+- [x] 12. Fix checkout passenger forms not rendering for all passengers
+
+
 
 
 
@@ -406,16 +408,21 @@
     - _Requirements: 5.1, 5.2_
 
 
+
   - [ ] 12.2 Fix PassengerForm conditional rendering logic
     - Review `isMultiPassenger` condition in PassengerForm component
     - Ensure it correctly detects when multiple passengers should be rendered
     - Add fallback handling if passengerTypes is undefined but passengerCount > 1
     - Add console logging to verify which mode (single/multi) is being used
+
+
     - _Requirements: 5.2, 5.3_
 
   - [ ] 12.3 Fix default values for multi-passenger forms
     - Ensure defaultValues only apply to first passenger (primary)
     - Other passengers should have empty forms
+
+
     - Update multiForm defaultValues generation logic
     - Test that user info pre-fills only for primary passenger
     - _Requirements: 5.3_
