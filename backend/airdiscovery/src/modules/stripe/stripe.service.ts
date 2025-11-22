@@ -8,6 +8,7 @@ import { Repository } from 'typeorm';
 import { MailService } from '../mail/mail.service';
 import { BookingStatus } from '../bookings/entities/booking.entity';
 import { CreatePaymentIntentDto } from './dto/stripe.dto';
+import { LoggerService } from '../logger/logger.service';
 
 export interface PaymentIntentResponse {
   id: string;
@@ -30,7 +31,7 @@ export interface PaymentIntentResponse {
  */
 @Injectable()
 export class StripeService {
-  private readonly logger = new Logger(StripeService.name);
+  private readonly logger: LoggerService;
 
   constructor(
     @Inject(Stripe) private readonly stripe: Stripe,
@@ -39,7 +40,10 @@ export class StripeService {
     @InjectRepository(PaymentEntity)
     private readonly paymentRepository: Repository<PaymentEntity>,
     private readonly mailService: MailService,
-  ) {}
+    private readonly loggerService: LoggerService,
+  ) {
+    this.logger = loggerService.child({ module: 'StripeService' });
+  }
 
   /**
    * Criar Payment Intent para processamento de pagamento
@@ -47,9 +51,16 @@ export class StripeService {
   async createPaymentIntent(
     createPaymentIntentDto: CreatePaymentIntentDto
   ): Promise<PaymentIntentResponse> {
-    try {
-      this.logger.log(`Criando Payment Intent para reserva ${createPaymentIntentDto.bookingId}`);
+    const startTime = Date.now();
 
+    this.logger.info('Creating payment intent', {
+      bookingId: createPaymentIntentDto.bookingId,
+      amount: createPaymentIntentDto.amount,
+      currency: createPaymentIntentDto.currency || 'brl',
+      function: 'createPaymentIntent',
+    });
+
+    try {
       // Buscar dados da reserva
       const booking = await this.bookingService.findById(createPaymentIntentDto.bookingId);
 
@@ -78,6 +89,16 @@ export class StripeService {
         },
       });
 
+      const responseTime = Date.now() - startTime;
+
+      this.logger.info('Stripe payment intent created', {
+        paymentIntentId: paymentIntent.id,
+        bookingId: createPaymentIntentDto.bookingId,
+        amount: paymentIntent.amount,
+        status: paymentIntent.status,
+        responseTime,
+      });
+
       // Salvar referência do Payment Intent no banco
       const paymentEntity = this.paymentRepository.create({
         bookingId: createPaymentIntentDto.bookingId,
@@ -91,7 +112,10 @@ export class StripeService {
 
       await this.paymentRepository.save(paymentEntity);
 
-      this.logger.log(`Payment Intent criado: ${paymentIntent.id}`);
+      this.logger.debug('Payment entity saved to database', {
+        paymentIntentId: paymentIntent.id,
+        bookingId: createPaymentIntentDto.bookingId,
+      });
 
       return {
         id: paymentIntent.id,
@@ -102,7 +126,13 @@ export class StripeService {
       };
 
     } catch (error) {
-      this.logger.error('Erro ao criar Payment Intent:', error);
+      const responseTime = Date.now() - startTime;
+      this.logger.error('Failed to create payment intent', error as Error, {
+        bookingId: createPaymentIntentDto.bookingId,
+        amount: createPaymentIntentDto.amount,
+        responseTime,
+        function: 'createPaymentIntent',
+      });
       if (error instanceof BadRequestException) {
         throw error;
       }
@@ -161,15 +191,22 @@ export class StripeService {
    * Processar pagamento bem-sucedido
    */
   private async handlePaymentSucceeded(paymentIntent: Stripe.PaymentIntent): Promise<void> {
+    const bookingId = paymentIntent.metadata.bookingId;
+    
+    this.logger.info('Processing successful payment', {
+      paymentIntentId: paymentIntent.id,
+      bookingId,
+      amount: paymentIntent.amount,
+      function: 'handlePaymentSucceeded',
+    });
+
     try {
-      const bookingId = paymentIntent.metadata.bookingId;
-      
       if (!bookingId) {
-        this.logger.error('BookingId não encontrado nos metadados do Payment Intent');
+        this.logger.error('BookingId not found in payment intent metadata', undefined, {
+          paymentIntentId: paymentIntent.id,
+        });
         return;
       }
-
-      this.logger.log(`Processando pagamento bem-sucedido para reserva ${bookingId}`);
 
       // Atualizar status do pagamento
       await this.paymentRepository.update(
@@ -180,6 +217,11 @@ export class StripeService {
         }
       );
 
+      this.logger.debug('Payment status updated to paid', {
+        paymentIntentId: paymentIntent.id,
+        bookingId,
+      });
+
       // Atualizar status da reserva
       await this.bookingService.update(bookingId, { status: BookingStatus.PAID });
 
@@ -187,10 +229,18 @@ export class StripeService {
       const booking = await this.bookingService.findById(bookingId);
       await this.mailService.sendBookingConfirmation(booking);
 
-      this.logger.log(`Pagamento processado com sucesso para reserva ${bookingId}`);
+      this.logger.info('Payment processed successfully', {
+        paymentIntentId: paymentIntent.id,
+        bookingId,
+        amount: paymentIntent.amount,
+      });
 
     } catch (error) {
-      this.logger.error('Erro ao processar pagamento bem-sucedido:', error);
+      this.logger.error('Failed to process successful payment', error as Error, {
+        paymentIntentId: paymentIntent.id,
+        bookingId,
+        function: 'handlePaymentSucceeded',
+      });
       throw error;
     }
   }
@@ -199,15 +249,22 @@ export class StripeService {
    * Processar falha no pagamento
    */
   private async handlePaymentFailed(paymentIntent: Stripe.PaymentIntent): Promise<void> {
+    const bookingId = paymentIntent.metadata.bookingId;
+    
+    this.logger.warn('Processing failed payment', {
+      paymentIntentId: paymentIntent.id,
+      bookingId,
+      amount: paymentIntent.amount,
+      function: 'handlePaymentFailed',
+    });
+
     try {
-      const bookingId = paymentIntent.metadata.bookingId;
-      
       if (!bookingId) {
-        this.logger.error('BookingId não encontrado nos metadados do Payment Intent');
+        this.logger.error('BookingId not found in payment intent metadata', undefined, {
+          paymentIntentId: paymentIntent.id,
+        });
         return;
       }
-
-      this.logger.log(`Processando falha no pagamento para reserva ${bookingId}`);
 
       // Atualizar status do pagamento
       await this.paymentRepository.update(
@@ -215,11 +272,20 @@ export class StripeService {
         { status: 'failed' }
       );
 
+      this.logger.info('Payment marked as failed', {
+        paymentIntentId: paymentIntent.id,
+        bookingId,
+      });
+
       // Não alteramos o status da reserva automaticamente em caso de falha
       // Deixamos como AWAITING_PAYMENT para nova tentativa
 
     } catch (error) {
-      this.logger.error('Erro ao processar falha no pagamento:', error);
+      this.logger.error('Failed to process payment failure', error as Error, {
+        paymentIntentId: paymentIntent.id,
+        bookingId,
+        function: 'handlePaymentFailed',
+      });
       throw error;
     }
   }
@@ -228,15 +294,22 @@ export class StripeService {
    * Processar cancelamento do pagamento
    */
   private async handlePaymentCanceled(paymentIntent: Stripe.PaymentIntent): Promise<void> {
+    const bookingId = paymentIntent.metadata.bookingId;
+    
+    this.logger.info('Processing payment cancellation', {
+      paymentIntentId: paymentIntent.id,
+      bookingId,
+      amount: paymentIntent.amount,
+      function: 'handlePaymentCanceled',
+    });
+
     try {
-      const bookingId = paymentIntent.metadata.bookingId;
-      
       if (!bookingId) {
-        this.logger.error('BookingId não encontrado nos metadados do Payment Intent');
+        this.logger.error('BookingId not found in payment intent metadata', undefined, {
+          paymentIntentId: paymentIntent.id,
+        });
         return;
       }
-
-      this.logger.log(`Processando cancelamento do pagamento para reserva ${bookingId}`);
 
       // Atualizar status do pagamento
       await this.paymentRepository.update(
@@ -247,8 +320,17 @@ export class StripeService {
       // Atualizar status da reserva para cancelada
       await this.bookingService.update(bookingId, { status: BookingStatus.CANCELLED });
 
+      this.logger.info('Payment cancellation processed', {
+        paymentIntentId: paymentIntent.id,
+        bookingId,
+      });
+
     } catch (error) {
-      this.logger.error('Erro ao processar cancelamento do pagamento:', error);
+      this.logger.error('Failed to process payment cancellation', error as Error, {
+        paymentIntentId: paymentIntent.id,
+        bookingId,
+        function: 'handlePaymentCanceled',
+      });
       throw error;
     }
   }
@@ -258,9 +340,14 @@ export class StripeService {
    * Método de compatibilidade com PaymentService
    */
   async recordPayment(bookingId: string, paymentData: { paymentId: string; transactionId?: string }): Promise<void> {
-    try {
-      this.logger.log(`Recording payment for booking ${bookingId} with payment ID ${paymentData.paymentId}`);
+    this.logger.info('Recording payment', {
+      bookingId,
+      paymentId: paymentData.paymentId,
+      transactionId: paymentData.transactionId,
+      function: 'recordPayment',
+    });
 
+    try {
       // Atualizar ou criar registro de pagamento
       const existingPayment = await this.paymentRepository.findOne({
         where: { paymentIntentId: paymentData.paymentId }
@@ -274,6 +361,11 @@ export class StripeService {
           existingPayment.externalReference = paymentData.transactionId;
         }
         await this.paymentRepository.save(existingPayment);
+        
+        this.logger.debug('Updated existing payment record', {
+          bookingId,
+          paymentId: paymentData.paymentId,
+        });
       } else {
         // Criar novo registro de pagamento se não existir
         const payment = this.paymentRepository.create({
@@ -285,12 +377,24 @@ export class StripeService {
           externalReference: paymentData.transactionId,
         });
         await this.paymentRepository.save(payment);
+        
+        this.logger.debug('Created new payment record', {
+          bookingId,
+          paymentId: paymentData.paymentId,
+        });
       }
 
-      this.logger.log(`Payment recorded successfully for booking ${bookingId}`);
+      this.logger.info('Payment recorded successfully', {
+        bookingId,
+        paymentId: paymentData.paymentId,
+      });
 
     } catch (error) {
-      this.logger.error(`Error recording payment for booking ${bookingId}:`, error);
+      this.logger.error('Failed to record payment', error as Error, {
+        bookingId,
+        paymentId: paymentData.paymentId,
+        function: 'recordPayment',
+      });
       throw error;
     }
   }

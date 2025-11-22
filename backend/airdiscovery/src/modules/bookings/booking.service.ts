@@ -7,6 +7,7 @@ import { Passenger } from './entities/passenger.entity';
 import { Flight } from '../flights/entities/flight.entity';
 import { Customer } from '../customers/entities/customer.entity';
 import { CreateBookingDto, UpdateBookingDto, BookingQueryDto, BookingResponseDto, PassengerDataDto } from './dto/booking.dto';
+import { LoggerService } from '../logger/logger.service';
 
 /**
  * BookingService - Serviço para gerenciar reservas de voos
@@ -21,6 +22,8 @@ import { CreateBookingDto, UpdateBookingDto, BookingQueryDto, BookingResponseDto
  */
 @Injectable()
 export class BookingService {
+  private readonly logger: LoggerService;
+
   constructor(
     private readonly dataSource: DataSource,
     @InjectRepository(Booking)
@@ -29,79 +32,113 @@ export class BookingService {
     private readonly flightRepository: Repository<Flight>,
     @InjectRepository(Customer)
     private readonly customerRepository: Repository<Customer>,
-  ) { }
+    private readonly loggerService: LoggerService,
+  ) {
+    this.logger = loggerService.child({ module: 'BookingService' });
+  }
 
   /**
    * Criar uma nova reserva
    */
   async create(createBookingDto: CreateBookingDto, userId: string): Promise<BookingResponseDto> {
-    // Validar dados de entrada
-    await this.validateBookingData(createBookingDto);
+    this.logger.info('Creating new booking', {
+      userId,
+      flightId: createBookingDto.flightId,
+      passengerCount: createBookingDto.passengers.length,
+      totalAmount: createBookingDto.totalAmount,
+      function: 'create',
+    });
 
-    // Buscar Flight existente pelo ID interno (obrigatório)
-    if (!createBookingDto.flightId) {
-      throw new BadRequestException('flightId is required. Flight must be created first via POST /flights/from-offer');
-    }
+    try {
+      // Validar dados de entrada
+      await this.validateBookingData(createBookingDto);
 
-    const flightEntity = await this.flightRepository.findOne({ where: { id: createBookingDto.flightId } });
-    if (!flightEntity) {
-      throw new BadRequestException(`Flight with ID ${createBookingDto.flightId} not found`);
-    }
-
-    // Buscar ou criar Customer baseado no userId (UUID do Cognito)
-    let customerEntity = await this.customerRepository.findOne({ where: { id: userId } });
-
-    if (!customerEntity) {
-      // Criar customer usando dados do primeiro passageiro (assumindo que é o usuário)
-      const primaryPassenger = createBookingDto.passengers[0];
-      if (!primaryPassenger) {
-        throw new BadRequestException('At least one passenger is required to create a customer');
+      // Buscar Flight existente pelo ID interno (obrigatório)
+      if (!createBookingDto.flightId) {
+        throw new BadRequestException('flightId is required. Flight must be created first via POST /flights/from-offer');
       }
 
-      customerEntity = this.customerRepository.create({
-        id: userId, // Use Cognito UUID
-        name: `${primaryPassenger.firstName} ${primaryPassenger.lastName}`,
-        email: primaryPassenger.email,
-        phone: primaryPassenger.phone || undefined, // Convert null to undefined
+      const flightEntity = await this.flightRepository.findOne({ where: { id: createBookingDto.flightId } });
+      if (!flightEntity) {
+        throw new BadRequestException(`Flight with ID ${createBookingDto.flightId} not found`);
+      }
+
+      // Buscar ou criar Customer baseado no userId (UUID do Cognito)
+      let customerEntity = await this.customerRepository.findOne({ where: { id: userId } });
+
+      if (!customerEntity) {
+        // Criar customer usando dados do primeiro passageiro (assumindo que é o usuário)
+        const primaryPassenger = createBookingDto.passengers[0];
+        if (!primaryPassenger) {
+          throw new BadRequestException('At least one passenger is required to create a customer');
+        }
+
+        customerEntity = this.customerRepository.create({
+          id: userId, // Use Cognito UUID
+          name: `${primaryPassenger.firstName} ${primaryPassenger.lastName}`,
+          email: primaryPassenger.email,
+          phone: primaryPassenger.phone || undefined, // Convert null to undefined
+        });
+
+        customerEntity = await this.customerRepository.save(customerEntity);
+        this.logger.debug('Created new customer', { userId, customerId: customerEntity.id });
+      }
+
+      // Mapear passageiros
+      const passengerEntities: Passenger[] = createBookingDto.passengers.map(p => {
+        const passenger = new Passenger();
+        passenger.first_name = p.firstName;
+        passenger.last_name = p.lastName;
+        passenger.passport_number = p.document;
+        passenger.email = p.email;
+        passenger.phone = p.phone;
+        passenger.document = p.document;
+        passenger.birth_date = p.birthDate;
+        return passenger;
       });
 
-      customerEntity = await this.customerRepository.save(customerEntity);
+      // Criar e salvar reserva inicial
+      const booking = this.bookingRepository.create({
+        customer: customerEntity, // Use the full customer entity
+        flight: flightEntity, // Use the full flight entity
+        total_amount: createBookingDto.totalAmount,
+        status: BookingStatus.PENDING,
+        passengers: passengerEntities,
+      });
+      let saved = await this.bookingRepository.save(booking);
+
+      this.logger.info('Booking created successfully', {
+        bookingId: saved.booking_id,
+        userId,
+        flightId: createBookingDto.flightId,
+        status: saved.status,
+      });
+
+      // Atualizar status para awaiting_payment
+      saved.status = BookingStatus.AWAITING_PAYMENT;
+      saved = await this.bookingRepository.save(saved);
+
+      this.logger.info('Booking status updated', {
+        bookingId: saved.booking_id,
+        oldStatus: BookingStatus.PENDING,
+        newStatus: BookingStatus.AWAITING_PAYMENT,
+      });
+
+      // Reload with relations for proper DTO conversion
+      const bookingWithRelations = await this.bookingRepository.findOne({
+        where: { booking_id: saved.booking_id },
+        relations: ['customer', 'flight', 'passengers', 'payments']
+      });
+
+      return this.toResponseDto(bookingWithRelations!);
+    } catch (error) {
+      this.logger.error('Failed to create booking', error as Error, {
+        userId,
+        flightId: createBookingDto.flightId,
+        function: 'create',
+      });
+      throw error;
     }
-
-    // Mapear passageiros
-    const passengerEntities: Passenger[] = createBookingDto.passengers.map(p => {
-      const passenger = new Passenger();
-      passenger.first_name = p.firstName;
-      passenger.last_name = p.lastName;
-      passenger.passport_number = p.document;
-      passenger.email = p.email;
-      passenger.phone = p.phone;
-      passenger.document = p.document;
-      passenger.birth_date = p.birthDate;
-      return passenger;
-    });
-
-    // Criar e salvar reserva inicial
-    const booking = this.bookingRepository.create({
-      customer: customerEntity, // Use the full customer entity
-      flight: flightEntity, // Use the full flight entity
-      total_amount: createBookingDto.totalAmount,
-      status: BookingStatus.PENDING,
-      passengers: passengerEntities,
-    });
-    let saved = await this.bookingRepository.save(booking);
-
-    // Atualizar status para awaiting_payment
-    saved.status = BookingStatus.AWAITING_PAYMENT;
-    saved = await this.bookingRepository.save(saved);
-
-    // Reload with relations for proper DTO conversion
-    const bookingWithRelations = await this.bookingRepository.findOne({
-      where: { booking_id: saved.booking_id },
-      relations: ['customer', 'flight', 'passengers', 'payments']
-    });
-
-    return this.toResponseDto(bookingWithRelations!);
   }
 
   /**
@@ -112,7 +149,7 @@ export class BookingService {
 
     // Se userId for fornecido, filtrar apenas reservas do usuário
     if (userId) {
-      whereConditions.userId = userId;
+      whereConditions.customer = { id: userId };
     }
 
     const booking = await this.bookingRepository.findOne({
@@ -140,7 +177,7 @@ export class BookingService {
     const whereConditions: any = {};
 
     if (userId) {
-      whereConditions.userId = userId;
+      whereConditions.customer = { id: userId };
     }
 
     if (status) {
@@ -148,12 +185,13 @@ export class BookingService {
     }
 
     if (flightId) {
-      whereConditions.flightId = flightId;
+      whereConditions.flight = { id: flightId };
     }
 
     // Configurar opções de consulta
     const options: FindManyOptions<Booking> = {
       where: whereConditions,
+      relations: ['customer', 'flight', 'passengers', 'payments'],
       order: { createdAt: 'DESC' },
       skip: (page - 1) * limit,
       take: limit,
@@ -178,25 +216,56 @@ export class BookingService {
     updateBookingDto: UpdateBookingDto,
     userId?: string,
   ): Promise<BookingResponseDto> {
-    // Buscar reserva existente
-    const booking = await this.findBookingEntity(id, userId);
+    this.logger.info('Updating booking', {
+      bookingId: id,
+      userId,
+      updates: Object.keys(updateBookingDto),
+      function: 'update',
+    });
 
-    // Validar transição de status
-    if (updateBookingDto.status) {
-      this.validateStatusTransition(booking.status, updateBookingDto.status);
+    try {
+      // Buscar reserva existente
+      const booking = await this.findBookingEntity(id, userId);
+      const oldStatus = booking.status;
+
+      // Validar transição de status
+      if (updateBookingDto.status) {
+        this.validateStatusTransition(booking.status, updateBookingDto.status);
+      }
+
+      // Aplicar atualizações, exceto dados de pagamento que são via entidade Payment
+      const { paymentData, ...restDto } = updateBookingDto as any;
+      Object.assign(booking, restDto);
+      if (paymentData) {
+        // TODO: Persistir payments via Payment entity
+      }
+
+      // Salvar alterações
+      const updatedBooking = await this.bookingRepository.save(booking);
+
+      // Log status change if it occurred
+      if (updateBookingDto.status && oldStatus !== updateBookingDto.status) {
+        this.logger.info('Booking status changed', {
+          bookingId: id,
+          oldStatus,
+          newStatus: updateBookingDto.status,
+        });
+      }
+
+      this.logger.info('Booking updated successfully', {
+        bookingId: id,
+        userId,
+      });
+
+      return this.toResponseDto(updatedBooking);
+    } catch (error) {
+      this.logger.error('Failed to update booking', error as Error, {
+        bookingId: id,
+        userId,
+        function: 'update',
+      });
+      throw error;
     }
-
-    // Aplicar atualizações, exceto dados de pagamento que são via entidade Payment
-    const { paymentData, ...restDto } = updateBookingDto as any;
-    Object.assign(booking, restDto);
-    if (paymentData) {
-      // TODO: Persistir payments via Payment entity
-    }
-
-    // Salvar alterações
-    const updatedBooking = await this.bookingRepository.save(booking);
-
-    return this.toResponseDto(updatedBooking);
   }
 
   /**
@@ -209,59 +278,136 @@ export class BookingService {
       transactionId?: string;
     },
   ): Promise<BookingResponseDto> {
-    // Confirm payment and persist via StripeService
-    const booking = await this.findBookingEntity(bookingId);
-    if (!booking.canBePaid()) {
-      throw new BadRequestException(`Reserva não pode ser paga. Status atual: ${booking.status}`);
+    this.logger.info('Confirming payment for booking', {
+      bookingId,
+      paymentId: paymentData.paymentId,
+      transactionId: paymentData.transactionId,
+      function: 'confirmPayment',
+    });
+
+    try {
+      // Confirm payment and persist via StripeService
+      const booking = await this.findBookingEntity(bookingId);
+      const oldStatus = booking.status;
+
+      if (!booking.canBePaid()) {
+        throw new BadRequestException(`Reserva não pode ser paga. Status atual: ${booking.status}`);
+      }
+
+      booking.status = BookingStatus.PAID;
+      const updatedBooking = await this.bookingRepository.save(booking);
+
+      this.logger.info('Payment confirmed successfully', {
+        bookingId,
+        oldStatus,
+        newStatus: BookingStatus.PAID,
+        paymentId: paymentData.paymentId,
+      });
+
+      // Delegate saving payment details
+      return this.toResponseDto(updatedBooking);
+    } catch (error) {
+      this.logger.error('Failed to confirm payment', error as Error, {
+        bookingId,
+        paymentId: paymentData.paymentId,
+        function: 'confirmPayment',
+      });
+      throw error;
     }
-    booking.status = BookingStatus.PAID;
-    const updatedBooking = await this.bookingRepository.save(booking);
-    // Delegate saving payment details
-    return this.toResponseDto(updatedBooking);
   }
 
   async updateBookingToAwaitingPayment(bookingId: string, preferenceId: string): Promise<void> {
-    const booking = await this.findBookingEntity(bookingId);
+    this.logger.info('Updating booking to awaiting payment', {
+      bookingId,
+      preferenceId,
+      function: 'updateBookingToAwaitingPayment',
+    });
 
-    
-    if (booking.status !== BookingStatus.PENDING && booking.status !== BookingStatus.AWAITING_PAYMENT) {
-      throw new ConflictException(`Booking status must be PENDING to update to AWAITING_PAYMENT. Current status: ${booking.status}`);
+    try {
+      const booking = await this.findBookingEntity(bookingId);
+      const oldStatus = booking.status;
+
+      if (booking.status !== BookingStatus.PENDING && booking.status !== BookingStatus.AWAITING_PAYMENT) {
+        throw new ConflictException(`Booking status must be PENDING to update to AWAITING_PAYMENT. Current status: ${booking.status}`);
+      }
+
+      if (booking.status === BookingStatus.AWAITING_PAYMENT && booking.preferenceId === preferenceId) {
+        this.logger.debug('Booking already in awaiting payment status with same preference ID', {
+          bookingId,
+          preferenceId,
+        });
+        return; // No update needed
+      }
+
+      booking.status = BookingStatus.AWAITING_PAYMENT;
+      booking.preferenceId = preferenceId;
+      await this.bookingRepository.save(booking);
+
+      this.logger.info('Booking status updated to awaiting payment', {
+        bookingId,
+        oldStatus,
+        newStatus: BookingStatus.AWAITING_PAYMENT,
+        preferenceId,
+      });
+    } catch (error) {
+      this.logger.error('Failed to update booking to awaiting payment', error as Error, {
+        bookingId,
+        preferenceId,
+        function: 'updateBookingToAwaitingPayment',
+      });
+      throw error;
     }
-
-    if (booking.status === BookingStatus.AWAITING_PAYMENT && booking.preferenceId === preferenceId) {
-      return; // No update needed
-    }
-
-    booking.status = BookingStatus.AWAITING_PAYMENT;
-    booking.preferenceId = preferenceId;
-    await this.bookingRepository.save(booking);
   }
 
   /**
    * Cancelar reserva
    */
   async cancel(id: string, userId?: string, reason?: string): Promise<BookingResponseDto> {
-    const booking = await this.findBookingEntity(id, userId);
+    this.logger.info('Cancelling booking', {
+      bookingId: id,
+      userId,
+      reason,
+      function: 'cancel',
+    });
 
-    // Verificar se a reserva pode ser cancelada
-    if (booking.isFinalStatus()) {
-      throw new BadRequestException(
-        `Reserva não pode ser cancelada. Status atual: ${booking.status}`
-      );
+    try {
+      const booking = await this.findBookingEntity(id, userId);
+      const oldStatus = booking.status;
+
+      // Verificar se a reserva pode ser cancelada
+      if (booking.isFinalStatus()) {
+        throw new BadRequestException(
+          `Reserva não pode ser cancelada. Status atual: ${booking.status}`
+        );
+      }
+
+      // Atualizar status e adicionar observação sobre o cancelamento
+      booking.status = BookingStatus.CANCELLED;
+
+      if (reason) {
+        booking.notes = booking.notes
+          ? `${booking.notes}\n\nCancelamento: ${reason}`
+          : `Cancelamento: ${reason}`;
+      }
+
+      const updatedBooking = await this.bookingRepository.save(booking);
+
+      this.logger.info('Booking cancelled successfully', {
+        bookingId: id,
+        oldStatus,
+        newStatus: BookingStatus.CANCELLED,
+        reason,
+      });
+
+      return this.toResponseDto(updatedBooking);
+    } catch (error) {
+      this.logger.error('Failed to cancel booking', error as Error, {
+        bookingId: id,
+        userId,
+        function: 'cancel',
+      });
+      throw error;
     }
-
-    // Atualizar status e adicionar observação sobre o cancelamento
-    booking.status = BookingStatus.CANCELLED;
-
-    if (reason) {
-      booking.notes = booking.notes
-        ? `${booking.notes}\n\nCancelamento: ${reason}`
-        : `Cancelamento: ${reason}`;
-    }
-
-    const updatedBooking = await this.bookingRepository.save(booking);
-
-    return this.toResponseDto(updatedBooking);
   }
 
   /**
@@ -285,11 +431,12 @@ export class BookingService {
     const whereConditions: any = { booking_id: id };
 
     if (userId) {
-      whereConditions.userId = userId;
+      whereConditions.customer = { id: userId };
     }
 
     const booking = await this.bookingRepository.findOne({
       where: whereConditions,
+      relations: ['customer', 'flight', 'passengers', 'payments'],
     });
 
     if (!booking) {

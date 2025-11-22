@@ -27,6 +27,7 @@ import { JsonResponseParser } from './utils/json-response-parser';
 import { convertAvailabilityToDateRange } from './utils/date-converter.util';
 import { PassengerValidationUtil } from './utils/passenger-validation.util';
 import { ERROR_MESSAGES } from './constants/error-messages.constant';
+import { LoggerService } from '../logger/logger.service';
 
 /**
  * Nova implementação do ChatbotService focada em respostas JSON estruturadas
@@ -34,13 +35,16 @@ import { ERROR_MESSAGES } from './constants/error-messages.constant';
  */
 @Injectable()
 export class ChatbotService {
-  private readonly logger = new Logger(ChatbotService.name);
+  private readonly logger: LoggerService;
   private readonly bedrockClient: BedrockRuntimeClient;
 
   constructor(
     private readonly configService: ConfigService,
-    private readonly chatSessionRepository: ChatSessionRepository
+    private readonly chatSessionRepository: ChatSessionRepository,
+    private readonly jsonResponseParser: JsonResponseParser,
+    private readonly loggerService: LoggerService,
   ) {
+    this.logger = loggerService.child({ module: 'ChatbotService' });
     this.bedrockClient = new BedrockRuntimeClient({
       region: this.configService.get<string>('AWS_REGION', 'us-east-2'),
       credentials: fromEnv(),
@@ -407,12 +411,20 @@ export class ChatbotService {
         
         // Log de metadata do chunk para debug
         if (chunk.metadata) {
-          this.logger.debug(`� Metadata do chunk:`, JSON.stringify(chunk.metadata));
+          this.logger.debug('Chunk metadata received', {
+            function: 'processMessage',
+            sessionId: session.sessionId,
+            metadata: chunk.metadata
+          });
         }
       }
 
-      this.logger.log(`📝 Resposta completa: ${completeContent.length} chars`);
-      this.logger.debug(`Últimos 200 chars: ...${completeContent.slice(-200)}`);
+      this.logger.info('Complete response received', {
+        function: 'processMessage',
+        sessionId: session.sessionId,
+        contentLength: completeContent.length,
+        contentPreview: completeContent.slice(-200)
+      });
       
       // Verifica se o stream foi interrompido prematuramente
       if (stopReason && stopReason !== 'end_turn' && stopReason !== 'stop_sequence') {
@@ -441,16 +453,20 @@ export class ChatbotService {
     rawResponse: string
   ): Promise<JsonStreamChunk> {
     // Sanitiza resposta
-    const sanitizedResponse = JsonResponseParser.sanitizeResponse(rawResponse);
+    const sanitizedResponse = this.jsonResponseParser.sanitizeResponse(rawResponse);
     
     // Valida e parsea JSON
-    const validation = JsonResponseParser.parseResponse(sanitizedResponse);
+    const validation = this.jsonResponseParser.parseResponse(sanitizedResponse, session.sessionId);
 
     if (!validation.isValid || !validation.parsedData) {
-      this.logger.error(`JSON inválido recebido: ${validation.error}`);
+      this.logger.error('Invalid JSON received from LLM', undefined, {
+        function: 'processCompleteResponse',
+        sessionId: session.sessionId,
+        error: validation.error
+      });
       
       // Resposta de fallback
-      const fallbackResponse = JsonResponseParser.generateFallback(
+      const fallbackResponse = this.jsonResponseParser.generateFallback(
         session.currentStage,
         session.collectedData,
         validation.error || 'Resposta inválida'
@@ -605,7 +621,13 @@ export class ChatbotService {
       lastUserMessage
     );
 
-    console.log('🧠 Prompt enviado ao Bedrock:', contextPrompt);
+    this.logger.debug('Bedrock prompt prepared', {
+      function: 'buildBedrockInput',
+      sessionId: session.sessionId,
+      userId: session.userId,
+      currentStage: session.currentStage,
+      promptPreview: contextPrompt.substring(0, 200)
+    });
 
     return {
       modelId: 'us.meta.llama4-scout-17b-instruct-v1:0',
@@ -753,27 +775,14 @@ export class ChatbotService {
 
     const composition = data.passenger_composition;
 
-    // Calculate children and infants from passenger composition
-    let childrenCount = 0;
-    let infantsCount = 0;
-    
-    if (composition?.children) {
-      for (const child of composition.children) {
-        if (child.age <= 2) {
-          infantsCount++;
-        } else {
-          childrenCount++;
-        }
-      }
-    }
-
     const adults = composition?.adults || 1; // Default to 1 adult for backward compatibility
+    const children = composition?.children || 0;
 
     // Validate flight search parameters before returning
     const validation = PassengerValidationUtil.validateFlightSearchParams(
       adults,
-      childrenCount > 0 ? childrenCount : undefined,
-      infantsCount > 0 ? infantsCount : undefined
+      children > 0 ? children : undefined,
+      undefined // No infants - simplified
     );
 
     if (!validation.isValid) {
@@ -788,7 +797,6 @@ export class ChatbotService {
       returnDate: string;
       adults: number;
       children?: number;
-      infants?: number;
     } = {
       originLocationCode: data.origin_iata,
       destinationLocationCode: data.destination_iata,
@@ -797,12 +805,9 @@ export class ChatbotService {
       adults
     };
 
-    // Only add children and infants fields if count > 0
-    if (childrenCount > 0) {
-      params.children = childrenCount;
-    }
-    if (infantsCount > 0) {
-      params.infants = infantsCount;
+    // Only add children field if count > 0
+    if (children > 0) {
+      params.children = children;
     }
 
     return params;

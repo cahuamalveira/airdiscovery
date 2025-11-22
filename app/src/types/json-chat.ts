@@ -14,19 +14,11 @@ export type ConversationStage =
   | 'error';
 
 /**
- * Child passenger information
- */
-export interface ChildPassenger {
-  readonly age: number;
-  readonly isPaying: boolean;
-}
-
-/**
- * Passenger composition for multi-passenger bookings
+ * Passenger composition for multi-passenger bookings (simplified)
  */
 export interface PassengerComposition {
   readonly adults: number;
-  readonly children: readonly ChildPassenger[] | null;
+  readonly children: number | null;
 }
 
 export interface CollectedTravelData {

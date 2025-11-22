@@ -2,26 +2,17 @@ import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { AppModule } from './app.module';
 import { json, urlencoded } from 'express';
+import { LoggerService } from './modules/logger/logger.service';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
-
-  // Temporariamente removendo webhook do Stripe para debug
-  // TODO: Re-adicionar após resolver o problema do body parsing
-
-  // Debug middleware para logar requests (agora depois do JSON parsing)
-  app.use('/flights/from-offer', (req: any, res: any, next: any) => {
-    console.log('=== DEBUG REQUEST ===');
-    console.log('Method:', req.method);
-    console.log('URL:', req.url);
-    console.log('Headers Content-Type:', req.headers['content-type']);
-    console.log('Body:', req.body);
-    console.log('Body type:', typeof req.body);
-    console.log('Body keys:', Object.keys(req.body || {}));
-    console.log('Raw body length:', req.rawBody ? req.rawBody.length : 'N/A');
-    console.log('===================');
-    next();
+  // Create NestJS app with custom logger disabled initially
+  const app = await NestFactory.create(AppModule, {
+    logger: false, // Disable default NestJS logger
   });
+
+  // Get custom logger from DI container and set it as the app logger
+  const logger = app.get(LoggerService);
+  app.useLogger(logger);
 
   // Configurar ValidationPipe global para DTOs
   app.useGlobalPipes(new ValidationPipe({
@@ -65,6 +56,13 @@ async function bootstrap() {
   // Adicionar prefixo global para APIs
   // app.setGlobalPrefix('api');
   
-  await app.listen(process.env.PORT ?? 3001);
+  const port = process.env.PORT ?? 3001;
+  await app.listen(port);
+  
+  // Log application startup
+  logger.info('Application started successfully', {
+    port,
+    environment: process.env.NODE_ENV || 'development',
+  });
 }
 bootstrap();

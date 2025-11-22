@@ -10,6 +10,7 @@ import { ChatbotModule } from './modules/chatbot/chatbot.module';
 import { BookingModule } from './modules/bookings/booking.module';
 import { StripeModule } from './modules/stripe/stripe.module';
 import { MailModule } from './modules/mail/mail.module';
+import { LoggerModule } from './modules/logger/logger.module';
 import { AuthMiddleware } from './common/middlewares/auth.middleware';
 
 @Module({
@@ -17,6 +18,7 @@ import { AuthMiddleware } from './common/middlewares/auth.middleware';
     ConfigModule.forRoot({
       isGlobal: true
     }),
+    LoggerModule, // Import LoggerModule globally (marked with @Global decorator)
     TypeOrmModule.forRootAsync({
        imports: [ConfigModule],
        useFactory: (configService: ConfigService) => ({

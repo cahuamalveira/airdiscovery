@@ -25,11 +25,8 @@ export interface BudgetValidationResult {
  */
 export class PassengerPricingUtil {
   /**
-   * Calcula preços baseado na composição de passageiros
-   * Regras da legislação brasileira:
-   * - Bebês (0-2 anos): Não pagantes (lap infants)
-   * - Crianças (>2 anos): Passageiros pagantes
-   * - Adultos: Passageiros pagantes
+   * Calcula preços baseado na composição de passageiros (simplificado)
+   * Todos os passageiros são considerados pagantes
    * 
    * @param totalBudget Orçamento total disponível
    * @param composition Composição de passageiros (adultos e crianças)
@@ -40,21 +37,12 @@ export class PassengerPricingUtil {
     composition: PassengerComposition,
   ): PricingCalculation {
     const adults = composition.adults;
-    const children = composition.children || [];
+    const children = composition.children || 0;
     
-    let payingPassengers = adults;
-    let nonPayingPassengers = 0;
+    const totalPassengers = adults + children;
+    const payingPassengers = totalPassengers; // All passengers pay
+    const nonPayingPassengers = 0;
     
-    // Classificar crianças como pagantes ou não pagantes baseado na idade
-    for (const child of children) {
-      if (child.age > 2) {
-        payingPassengers++;
-      } else {
-        nonPayingPassengers++;
-      }
-    }
-    
-    const totalPassengers = adults + children.length;
     const perPersonBudget = totalBudget / payingPassengers;
     
     return {

@@ -17,6 +17,7 @@ import { AuthenticatedRequest } from '../../common/middlewares/auth.middleware';
 import { jwtVerify, createRemoteJWKSet, decodeJwt } from 'jose';
 import { ConfigService } from '@nestjs/config';
 import { SocketAuthRepository } from './repositories/socket-auth.repository';
+import { LoggerService } from '../logger/logger.service';
 
 /**
  * WebSocket Gateway para chat em tempo real com JSON estruturado
@@ -42,14 +43,16 @@ export class ChatbotGateway implements OnGatewayInit, OnGatewayConnection, OnGat
   @WebSocketServer()
   server: Server;
 
-  private readonly logger = new Logger(ChatbotGateway.name);
+  private readonly logger: LoggerService;
   private readonly jwks: ReturnType<typeof createRemoteJWKSet>;
 
   constructor(
     private readonly chatbotService: ChatbotService,
     private readonly configService: ConfigService,
     private readonly socketAuthRepository: SocketAuthRepository,
+    private readonly loggerService: LoggerService,
   ) {
+    this.logger = loggerService.child({ module: 'ChatbotGateway' });
     const region = this.configService.get<string>('AWS_REGION', 'us-east-1');
     const userPoolId = this.configService.get<string>('USER_POOL_ID');
     if (!userPoolId) {
@@ -158,7 +161,12 @@ export class ChatbotGateway implements OnGatewayInit, OnGatewayConnection, OnGat
         throw new UnauthorizedException('Authentication failed');
       }
 
-      console.log({ socketData, handleStartJsonChatData: data });
+      this.logger.debug('Starting chat session', {
+        function: 'handleStartChat',
+        socketId: client.id,
+        userId: socketData.userId,
+        existingSessionId: data.sessionId
+      });
 
       // Inicia sessão JSON
       const sessionId = await this.chatbotService.startChatSession(
@@ -317,8 +325,12 @@ export class ChatbotGateway implements OnGatewayInit, OnGatewayConnection, OnGat
   private extractTokenFromSocket(client: Socket): string | null {
     // Tenta extrair do header Authorization
     const authHeader = client.handshake.auth.token;
-    console.log('Auth Header:', authHeader);
-    console.log('Handshake Query:', client.handshake);
+    this.logger.debug('Extracting token from socket', {
+      function: 'extractTokenFromSocket',
+      socketId: client.id,
+      hasAuthToken: !!authHeader,
+      hasQueryToken: !!client.handshake.query.token
+    });
 
     if (authHeader && typeof authHeader === 'string') {
       return authHeader;
@@ -366,9 +378,8 @@ export class ChatbotGateway implements OnGatewayInit, OnGatewayConnection, OnGat
       this.logger.debug(`JWT verification successful for user: ${payload.sub}`);
       return payload;
     } catch (error) {
-      this.logger.error(`JWT verification error details:`, {
-        message: error.message,
-        stack: error.stack,
+      this.logger.error('JWT verification error', error, {
+        function: 'verifyToken',
         region: this.configService.get('AWS_REGION'),
         userPoolId: this.configService.get('USER_POOL_ID'),
         jwksUrl: `https://cognito-idp.${this.configService.get('AWS_REGION')}.amazonaws.com/${this.configService.get('USER_POOL_ID')}/.well-known/jwks.json`

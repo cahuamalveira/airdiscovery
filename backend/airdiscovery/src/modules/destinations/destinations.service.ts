@@ -1,6 +1,7 @@
 import { Injectable, Logger, HttpException, HttpStatus } from '@nestjs/common';
 import { SearchDestinationDto } from './dto/search-destination.dto';
 import { AmadeusClientService } from '../../common/amadeus/amadeus-client.service';
+import { LoggerService } from '../logger/logger.service';
 
 export interface FlightOffer {
     id: string;
@@ -64,11 +65,14 @@ export interface DestinationSearchResult {
 
 @Injectable()
 export class DestinationsService {
-    private readonly logger = new Logger(DestinationsService.name);
+    private readonly logger: LoggerService;
 
     constructor(
-        private readonly amadeusClient: AmadeusClientService
-    ) {}
+        private readonly amadeusClient: AmadeusClientService,
+        private readonly loggerService: LoggerService,
+    ) {
+        this.logger = loggerService.child({ module: 'DestinationsService' });
+    }
 
     /**
      * Busca destinos disponíveis baseado no DTO especificado
@@ -92,8 +96,18 @@ export class DestinationsService {
                 max: 50 // Limita a busca para performance
             });
             
-
-            console.log('🔍 Resultado da busca de destinos:', amadeusResponse);
+            this.logger.debug('Amadeus search results received', {
+                function: 'searchDestinations',
+                origin: queryDTO.origin,
+                destination: queryDTO.destination,
+                resultCount: amadeusResponse.meta.count,
+                searchParams: {
+                    departureDate: queryDTO.departureDate,
+                    returnDate: queryDTO.returnDate,
+                    adults: queryDTO.adults,
+                    nonStop: queryDTO.nonStop
+                }
+            });
 
             // Transforma a resposta do Amadeus no formato esperado
             const result: DestinationSearchResult = {

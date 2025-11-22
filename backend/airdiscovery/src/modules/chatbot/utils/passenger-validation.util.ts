@@ -37,20 +37,15 @@ export class PassengerValidationUtil {
     }
 
     // Valida número máximo de passageiros (9 é o limite típico)
-    const totalPassengers = composition.adults + (composition.children?.length || 0);
+    const totalPassengers = composition.adults + (composition.children || 0);
     if (totalPassengers > 9) {
       errors.push(ERROR_MESSAGES.TOO_MANY_PASSENGERS);
     }
 
     // Valida crianças se existirem
-    if (composition.children && composition.children.length > 0) {
-      const childValidation = this.validateChildren(composition.children);
-      errors.push(...childValidation.errors);
-
-      // Valida número de bebês vs adultos
-      const infantCount = composition.children.filter(child => child.age <= 2).length;
-      if (infantCount > composition.adults) {
-        errors.push(ERROR_MESSAGES.TOO_MANY_INFANTS);
+    if (composition.children && composition.children > 0) {
+      if (composition.children < 0) {
+        errors.push('Número de crianças não pode ser negativo');
       }
     }
 
@@ -60,41 +55,7 @@ export class PassengerValidationUtil {
     };
   }
 
-  /**
-   * Valida array de crianças
-   * 
-   * @param children Array de crianças a ser validado
-   * @returns Resultado da validação
-   */
-  private static validateChildren(
-    children: readonly { age: number; isPaying: boolean }[],
-  ): PassengerValidationResult {
-    const errors: string[] = [];
 
-    for (let i = 0; i < children.length; i++) {
-      const child = children[i];
-      
-      // Valida idade da criança
-      if (child.age < 0) {
-        errors.push(`Criança ${i + 1}: ${ERROR_MESSAGES.INVALID_CHILD_AGE_NEGATIVE}`);
-      } else if (child.age > 17) {
-        errors.push(`Criança ${i + 1}: ${ERROR_MESSAGES.INVALID_CHILD_AGE_TOO_HIGH}`);
-      }
-
-      // Valida flag isPaying está correta
-      const expectedIsPaying = child.age > 2;
-      if (child.isPaying !== expectedIsPaying) {
-        errors.push(
-          `Criança ${i + 1}: Flag isPaying incorreta para idade ${child.age} anos`,
-        );
-      }
-    }
-
-    return {
-      isValid: errors.length === 0,
-      errors,
-    };
-  }
 
   /**
    * Valida se o orçamento é suficiente para a composição de passageiros
@@ -121,11 +82,8 @@ export class PassengerValidationUtil {
       return { isValid: false, errors };
     }
 
-    // Calcula número de passageiros pagantes
-    let payingPassengers = composition.adults;
-    if (composition.children) {
-      payingPassengers += composition.children.filter(child => child.age > 2).length;
-    }
+    // Calcula número de passageiros pagantes (simplified - all passengers pay)
+    const payingPassengers = composition.adults + (composition.children || 0);
 
     const perPersonBudget = budget / payingPassengers;
 

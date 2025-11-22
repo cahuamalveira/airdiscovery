@@ -2,6 +2,7 @@ import { Injectable, Logger, HttpException, HttpStatus } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { PassengerValidationUtil } from '../../modules/chatbot/utils/passenger-validation.util';
 import { ERROR_MESSAGES } from '../../modules/chatbot/constants/error-messages.constant';
+import { LoggerService } from '../../modules/logger/logger.service';
 
 interface AmadeusTokenResponse {
   access_token: string;
@@ -114,16 +115,20 @@ interface AmadeusFlightSearchResponse {
 
 @Injectable()
 export class AmadeusClientService {
-    private readonly logger = new Logger(AmadeusClientService.name);
+    private readonly logger: LoggerService;
     private readonly baseUrl: string;
     private accessToken: string | null = null;
     private tokenExpiry: Date | null = null;
 
-    constructor(private readonly configService: ConfigService) {
+    constructor(
+        private readonly configService: ConfigService,
+        private readonly loggerService: LoggerService,
+    ) {
+        this.logger = loggerService.child({ module: 'AmadeusClientService' });
         const environment = this.configService.get<string>('AMADEUS_ENVIRONMENT', 'test');
         this.baseUrl = this.configService.get<string>('AMADEUS_URL', 'test.api.amadeus.com');
         
-        this.logger.log(`Amadeus API configured for ${environment} environment: ${this.baseUrl}`);
+        this.logger.info(`Amadeus API configured for ${environment} environment: ${this.baseUrl}`);
     }
 
     /**
@@ -199,6 +204,20 @@ export class AmadeusClientService {
         nonStop?: boolean;
         max?: number;
     }): Promise<AmadeusFlightSearchResponse> {
+        const startTime = Date.now();
+        
+        this.logger.info('Searching flight offers', {
+            origin: params.originLocationCode,
+            destination: params.destinationLocationCode,
+            departureDate: params.departureDate,
+            returnDate: params.returnDate,
+            adults: params.adults,
+            children: params.children,
+            infants: params.infants,
+            nonStop: params.nonStop,
+            function: 'searchFlightOffers',
+        });
+
         // Validate passenger counts using centralized validation
         const validation = PassengerValidationUtil.validateFlightSearchParams(
             params.adults,
@@ -207,7 +226,11 @@ export class AmadeusClientService {
         );
 
         if (!validation.isValid) {
-            this.logger.error(`Validação de parâmetros falhou: ${validation.errors.join(', ')}`);
+            this.logger.error(`Flight search validation failed: ${validation.errors.join(', ')}`, undefined, {
+                origin: params.originLocationCode,
+                destination: params.destinationLocationCode,
+                errors: validation.errors,
+            });
             throw new HttpException(
                 validation.errors.join('; '),
                 HttpStatus.BAD_REQUEST
@@ -244,7 +267,10 @@ export class AmadeusClientService {
 
             const url = `${this.baseUrl}/v2/shopping/flight-offers?${searchParams.toString()}`;
             
-            this.logger.log(`Buscando voos: ${url}`);
+            this.logger.debug('Calling Amadeus API', {
+                url,
+                method: 'GET',
+            });
 
             const response = await fetch(url, {
                 method: 'GET',
@@ -255,8 +281,15 @@ export class AmadeusClientService {
             });
 
             if (!response.ok) {
+                const responseTime = Date.now() - startTime;
                 const errorText = await response.text();
-                this.logger.error(`Erro na busca de voos: ${response.status} - ${errorText}`);
+                this.logger.error(`Amadeus API request failed`, undefined, {
+                    status: response.status,
+                    responseTime,
+                    origin: params.originLocationCode,
+                    destination: params.destinationLocationCode,
+                    errorText: errorText.substring(0, 500), // Limit error text length
+                });
                 
                 if (response.status === 401) {
                     // Token expirado, limpa e tenta novamente
@@ -295,13 +328,25 @@ export class AmadeusClientService {
             }
 
             const flightData: AmadeusFlightSearchResponse = await response.json();
+            const responseTime = Date.now() - startTime;
             
-            this.logger.log(`Encontrados ${flightData.meta.count} voos`);
+            this.logger.info('Flight search completed successfully', {
+                resultCount: flightData.meta.count,
+                responseTime,
+                origin: params.originLocationCode,
+                destination: params.destinationLocationCode,
+            });
             
             return flightData;
 
         } catch (error) {
-            this.logger.error('Erro ao buscar voos no Amadeus', error);
+            const responseTime = Date.now() - startTime;
+            this.logger.error('Flight search failed', error as Error, {
+                responseTime,
+                origin: params.originLocationCode,
+                destination: params.destinationLocationCode,
+                function: 'searchFlightOffers',
+            });
             
             if (error instanceof HttpException) {
                 throw error;
@@ -319,6 +364,13 @@ export class AmadeusClientService {
      * Busca informações de aeroportos por código IATA ou cidade
      */
     async searchAirports(keyword: string): Promise<any> {
+        const startTime = Date.now();
+        
+        this.logger.info('Searching airports', {
+            keyword,
+            function: 'searchAirports',
+        });
+
         try {
             const token = await this.getAccessToken();
             
@@ -329,6 +381,11 @@ export class AmadeusClientService {
 
             const url = `${this.baseUrl}/v1/reference-data/locations?${searchParams.toString()}`;
             
+            this.logger.debug('Calling Amadeus API', {
+                url,
+                method: 'GET',
+            });
+
             const response = await fetch(url, {
                 method: 'GET',
                 headers: {
@@ -338,18 +395,38 @@ export class AmadeusClientService {
             });
 
             if (!response.ok) {
+                const responseTime = Date.now() - startTime;
                 const errorText = await response.text();
-                this.logger.error(`Erro na busca de aeroportos: ${response.status} - ${errorText}`);
+                this.logger.error(`Airport search failed`, undefined, {
+                    status: response.status,
+                    responseTime,
+                    keyword,
+                    errorText: errorText.substring(0, 500),
+                });
                 throw new HttpException(
                     `Erro na busca de aeroportos: ${response.status}`,
                     HttpStatus.BAD_REQUEST
                 );
             }
 
-            return await response.json();
+            const airportData = await response.json();
+            const responseTime = Date.now() - startTime;
+
+            this.logger.info('Airport search completed successfully', {
+                resultCount: airportData.data?.length || 0,
+                responseTime,
+                keyword,
+            });
+
+            return airportData;
 
         } catch (error) {
-            this.logger.error('Erro ao buscar aeroportos no Amadeus', error);
+            const responseTime = Date.now() - startTime;
+            this.logger.error('Airport search failed', error as Error, {
+                responseTime,
+                keyword,
+                function: 'searchAirports',
+            });
             
             if (error instanceof HttpException) {
                 throw error;

@@ -1,25 +1,41 @@
+import { Injectable } from '@nestjs/common';
 import { 
   ChatbotJsonResponse, 
   ValidationResult, 
   CollectedData, 
   ConversationStage 
 } from '../interfaces/json-response.interface';
+import { LoggerService } from '../../logger/logger.service';
 
 /**
  * Parser e validador para respostas JSON do LLM
  * Inclui múltiplas estratégias de parsing e validação robusta
  */
+@Injectable()
 export class JsonResponseParser {
+  private readonly logger: LoggerService;
+
+  constructor(private readonly loggerService: LoggerService) {
+    this.logger = loggerService.child({ module: 'JsonResponseParser' });
+  }
   
   /**
    * Tenta parsear resposta JSON com múltiplas estratégias
    */
-  public static parseResponse(rawResponse: string): ValidationResult {
-    console.log('🔍 JsonResponseParser: Iniciando parse da resposta:', rawResponse.substring(0, 200) + '...');
+  public parseResponse(rawResponse: string, sessionId?: string): ValidationResult {
+    this.logger.debug('Starting JSON response parsing', {
+      function: 'parseResponse',
+      sessionId,
+      responsePreview: rawResponse.substring(0, 200)
+    });
     
     // 🔧 SANITIZA a resposta ANTES de tentar parse
     const sanitized = this.sanitizeResponse(rawResponse);
-    console.log('🧹 Resposta sanitizada:', sanitized.substring(0, 200) + '...');
+    this.logger.debug('Response sanitized', {
+      function: 'parseResponse',
+      sessionId,
+      sanitizedPreview: sanitized.substring(0, 200)
+    });
     
     const strategies = [
       { name: 'directParse', fn: this.directParse },
@@ -33,24 +49,46 @@ export class JsonResponseParser {
 
     for (const strategy of strategies) {
       try {
-        console.log(`🧪 Tentando estratégia: ${strategy.name}`);
+        this.logger.debug(`Trying parsing strategy: ${strategy.name}`, {
+          function: 'parseResponse',
+          sessionId,
+          strategy: strategy.name
+        });
         const result = strategy.fn.call(this, sanitized); // 🔧 USA sanitized ao invés de rawResponse
         
         if (result.isValid && result.parsedData) {
-          console.log(`✅ Estratégia ${strategy.name} funcionou!`);
+          this.logger.debug(`Parsing strategy succeeded: ${strategy.name}`, {
+            function: 'parseResponse',
+            sessionId,
+            strategy: strategy.name
+          });
           return result;
         } else {
-          console.log(`❌ Estratégia ${strategy.name} falhou:`, result.error);
+          this.logger.debug(`Parsing strategy failed: ${strategy.name}`, {
+            function: 'parseResponse',
+            sessionId,
+            strategy: strategy.name,
+            error: result.error
+          });
           errors.push(`${strategy.name}: ${result.error}`);
         }
       } catch (error) {
-        console.log(`💥 Estratégia ${strategy.name} teve exceção:`, error.message);
+        this.logger.debug(`Parsing strategy threw exception: ${strategy.name}`, {
+          function: 'parseResponse',
+          sessionId,
+          strategy: strategy.name,
+          error: error.message
+        });
         errors.push(`${strategy.name}: ${error.message}`);
         continue;
       }
     }
 
-    console.error('🚨 Todas as estratégias falharam:', errors);
+    this.logger.error('All parsing strategies failed', undefined, {
+      function: 'parseResponse',
+      sessionId,
+      errors
+    });
     return {
       isValid: false,
       error: `Todas as estratégias de parsing falharam. Erros: ${errors.join('; ')}`
@@ -60,7 +98,7 @@ export class JsonResponseParser {
   /**
    * Estratégia 1: Parse direto
    */
-  private static directParse(rawResponse: string): ValidationResult {
+  private directParse(rawResponse: string): ValidationResult {
     try {
       const parsed = JSON.parse(rawResponse);
       return this.validateParsedData(parsed);
@@ -75,7 +113,7 @@ export class JsonResponseParser {
   /**
    * Estratégia 2: Limpeza básica e parse
    */
-  private static cleanAndParse(rawResponse: string): ValidationResult {
+  private cleanAndParse(rawResponse: string): ValidationResult {
     try {
       const cleaned = rawResponse
         .replace(/```json\s*/g, '')
@@ -96,7 +134,7 @@ export class JsonResponseParser {
   /**
    * Estratégia 3: Extração de JSON do texto
    */
-  private static extractJsonFromText(rawResponse: string): ValidationResult {
+  private extractJsonFromText(rawResponse: string): ValidationResult {
     try {
       // Procura por padrões de JSON no texto - versão melhorada
       const jsonPatterns = [
@@ -117,7 +155,10 @@ export class JsonResponseParser {
             const parsed = JSON.parse(jsonString);
             const validation = this.validateParsedData(parsed);
             if (validation.isValid) {
-              console.log('✅ JSON extraído com sucesso:', jsonString.substring(0, 100));
+              this.logger.debug('JSON extracted successfully from text', {
+                function: 'extractJsonFromText',
+                jsonPreview: jsonString.substring(0, 100)
+              });
               return validation;
             }
           } catch (e) {
@@ -142,7 +183,7 @@ export class JsonResponseParser {
   /**
    * Estratégia 4: Correção de problemas comuns
    */
-  private static fixCommonIssuesAndParse(rawResponse: string): ValidationResult {
+  private fixCommonIssuesAndParse(rawResponse: string): ValidationResult {
     try {
       let fixed = rawResponse;
 
@@ -174,9 +215,12 @@ export class JsonResponseParser {
   /**
    * Estratégia 5: Parse de emergência - cria resposta mínima válida
    */
-  private static emergencyParse(rawResponse: string): ValidationResult {
+  private emergencyParse(rawResponse: string): ValidationResult {
     try {
-      console.log('🆘 Usando parse de emergência para:', rawResponse.substring(0, 100));
+      this.logger.warn('Using emergency parse fallback', {
+        function: 'emergencyParse',
+        responsePreview: rawResponse.substring(0, 100)
+      });
       
       // Tenta extrair pelo menos a mensagem do assistente
       let assistantMessage = 'Desculpe, houve um problema na comunicação. Por favor, reformule sua pergunta.';
@@ -232,7 +276,7 @@ export class JsonResponseParser {
   /**
    * Valida dados parseados
    */
-  private static validateParsedData(data: any): ValidationResult {
+  private validateParsedData(data: any): ValidationResult {
     try {
       // Verifica se é um objeto
       if (typeof data !== 'object' || data === null) {
@@ -330,7 +374,9 @@ export class JsonResponseParser {
       // Preserva button_options se presente (campo opcional)
       if (data.button_options) {
         if (!Array.isArray(data.button_options)) {
-          console.warn('⚠️ button_options deve ser um array, ignorando');
+          this.logger.warn('button_options must be an array, ignoring', {
+            function: 'validateParsedData'
+          });
           delete data.button_options;
         } else {
           // Valida estrutura dos botões
@@ -340,10 +386,15 @@ export class JsonResponseParser {
             typeof btn.value === 'string'
           );
           if (!validButtons) {
-            console.warn('⚠️ button_options com estrutura inválida, ignorando');
+            this.logger.warn('button_options has invalid structure, ignoring', {
+              function: 'validateParsedData'
+            });
             delete data.button_options;
           } else {
-            console.log('✅ button_options preservado:', data.button_options.length, 'botões');
+            this.logger.debug('button_options preserved', {
+              function: 'validateParsedData',
+              buttonCount: data.button_options.length
+            });
           }
         }
       }
@@ -364,7 +415,7 @@ export class JsonResponseParser {
   /**
    * Valida estrutura de data_collected
    */
-  private static validateCollectedData(data: any): ValidationResult {
+  private validateCollectedData(data: any): ValidationResult {
     if (typeof data !== 'object' || data === null) {
       return {
         isValid: false,
@@ -428,7 +479,7 @@ export class JsonResponseParser {
   /**
    * Valida conversation_stage
    */
-  private static validateConversationStage(stage: string): ValidationResult {
+  private validateConversationStage(stage: string): ValidationResult {
     const validStages: ConversationStage[] = [
       'collecting_origin',
       'collecting_budget',
@@ -453,7 +504,7 @@ export class JsonResponseParser {
   /**
    * Gera resposta de fallback estruturada
    */
-  public static generateFallback(
+  public generateFallback(
     currentStage: ConversationStage,
     collectedData: CollectedData,
     errorMessage: string
@@ -470,7 +521,7 @@ export class JsonResponseParser {
   /**
    * Determina próxima pergunta necessária
    */
-  private static determineNextQuestion(data: CollectedData): 'origin' | 'budget' | 'availability' | 'activities' | 'purpose' | 'hobbies' | null {
+  private determineNextQuestion(data: CollectedData): 'origin' | 'budget' | 'availability' | 'activities' | 'purpose' | 'hobbies' | null {
     if (!data.origin_name || !data.origin_iata) return 'origin';
     if (!data.budget_in_brl) return 'budget';
     if (!data.availability_months || data.availability_months.length === 0) return 'availability';
@@ -482,7 +533,7 @@ export class JsonResponseParser {
   /**
    * Sanitiza resposta removendo caracteres problemáticos
    */
-  public static sanitizeResponse(response: string): string {
+  public sanitizeResponse(response: string): string {
     let sanitized = response
       .replace(/\u0000/g, '') // Remove null bytes
       .replace(/^\s*```json\s*/gmi, '') // Remove marcadores de código JSON
@@ -510,7 +561,7 @@ export class JsonResponseParser {
   /**
    * Verifica se a resposta está completa para recomendação
    */
-  public static isReadyForRecommendation(data: CollectedData): boolean {
+  public isReadyForRecommendation(data: CollectedData): boolean {
     return !!(
       data.origin_name && 
       data.origin_iata && 
@@ -524,7 +575,7 @@ export class JsonResponseParser {
   /**
    * Extrai estatísticas de preenchimento do perfil
    */
-  public static getCompletionStats(data: CollectedData): {
+  public getCompletionStats(data: CollectedData): {
     completed: number;
     total: number;
     percentage: number;

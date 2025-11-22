@@ -6,6 +6,8 @@ import { SessionsController } from './sessions.controller';
 import { ChatSessionRepository } from './repositories/chat-session.repository';
 import { SocketAuthRepository } from './repositories/socket-auth.repository';
 import { RedisConfigService } from './services/redis-config.service';
+import { JsonResponseParser } from './utils/json-response-parser';
+import { LoggerModule } from '../logger/logger.module';
 
 /**
  * Módulo responsável pelo sistema de chat inteligente com AWS Bedrock
@@ -20,13 +22,14 @@ import { RedisConfigService } from './services/redis-config.service';
  * - API REST para histórico de conversas
  */
 @Module({
-  imports: [ConfigModule],
+  imports: [ConfigModule, LoggerModule],
   providers: [
     ChatbotService, 
     ChatbotGateway, // Gateway único que utiliza JsonChatbotService
     ChatSessionRepository, 
     SocketAuthRepository, 
-    RedisConfigService
+    RedisConfigService,
+    JsonResponseParser
   ],
   controllers: [SessionsController], // Controller REST para histórico
   exports: [ChatbotService], // Permite uso em outros módulos
