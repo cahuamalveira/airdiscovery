@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo, useCallback, useRef } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Container,
@@ -6,22 +6,15 @@ import {
   Box,
   Card,
   CardContent,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
   Button,
   Stack,
   Alert,
   IconButton,
-  TextField,
   CircularProgress,
 } from '@mui/material';
 import {
   ArrowBack as ArrowBackIcon,
   CheckCircle as CheckCircleIcon,
-  CreditCard as CreditCardIcon,
-  AccessTime as AccessTimeIcon,
 } from '@mui/icons-material';
 import { useAuth } from '@/contexts/AuthContext';
 import { AmadeusFlightOffer, AmadeusDictionaries } from '@/hooks/useFlightSearch';
@@ -50,18 +43,6 @@ import {
 } from '@/hooks/checkout';
 
 /**
- * Interface para resposta do Pix
- */
-interface PixPreferenceResponse {
-  preferenceId: string;
-  qrCode: string;
-  qrCodeBase64: string;
-  ticketUrl: string;
-  expirationDate: string;
-  totalAmount: number;
-}
-
-/**
  * Componente principal da página de checkout
  */
 const CheckoutPage: React.FC = () => {
@@ -71,17 +52,19 @@ const CheckoutPage: React.FC = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
   const httpInterceptor = useHttpInterceptor();
+  
+  // Ref to track if component is mounted (for cleanup)
+  const isMountedRef = useRef(true);
 
   // Estados do componente
   const [bookingData, setBookingData] = useState<BookingData | null>(null);
-  const [showQrCodeDialog, setShowQrCodeDialog] = useState(false);
   const [passengerComposition, setPassengerComposition] = useState<PassengerComposition | null>(null);
   const [loadingComposition, setLoadingComposition] = useState<boolean>(false);
   const [compositionError, setCompositionError] = useState<string | null>(null);
 
   // Hooks customizados
   const { createBooking, loading: bookingLoading } = useBooking();
-  const { createPixPreference, pixData, paymentStatus } = usePixPayment();
+  const { paymentStatus } = usePixPayment();
   const {
     activeStep,
     steps,
@@ -93,69 +76,73 @@ const CheckoutPage: React.FC = () => {
 
   // Buscar dados do voo pelo ID interno
   const { flight, loading: flightLoading, error: flightError } = useFlight(flightId);
+  
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
 
   // Verificar se temos os dados necessários
   useEffect(() => {
     if (!flightId) {
       navigate('/voos');
-      return;
     }
   }, [flightId, navigate]);
 
   // Fetch passenger composition from chat session
   useEffect(() => {
-    const fetchPassengerComposition = async () => {
-      if (!sessionId) {
-        console.log('No sessionId provided, using default single passenger');
-        setPassengerComposition({ adults: 1, children: null });
-        return;
-      }
+    const defaultComposition = { adults: 1, children: null };
+    
+    // No sessionId? Use default immediately
+    if (!sessionId) {
+      setPassengerComposition(defaultComposition);
+      return;
+    }
 
-      setLoadingComposition(true);
-      setCompositionError(null);
+    let cancelled = false;
+    setLoadingComposition(true);
+    setCompositionError(null);
 
-      try {
-        const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3001';
-        const response = await httpInterceptor.get(
-          `${apiUrl}/sessions/collected-data/${sessionId}`
-        );
-
-        if (!response.ok) {
-          throw new Error(`Failed to fetch session data: ${response.statusText}`);
-        }
-
-        const data = await response.json();
+    const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+    
+    httpInterceptor
+      .get(`${apiUrl}/sessions/collected-data/${sessionId}`)
+      .then(response => response.json())
+      .then(data => {
+        if (cancelled) return;
+        
         const composition = data.collectedData?.passenger_composition;
-
-        if (composition && composition.adults > 0) {
-          setPassengerComposition(composition);
-        } else {
-          // Default to single passenger if no composition found
-          setPassengerComposition({ adults: 1, children: null });
-        }
-      } catch (error) {
+        const isValid = composition?.adults > 0;
+        
+        setPassengerComposition(isValid ? composition : defaultComposition);
+      })
+      .catch(error => {
+        if (cancelled) return;
+        
         console.error('Error fetching passenger composition:', error);
         setCompositionError('Não foi possível carregar os dados dos passageiros');
-        // Default to single passenger on error
-        setPassengerComposition({ adults: 1, children: null });
-      } finally {
-        setLoadingComposition(false);
-      }
-    };
+        setPassengerComposition(defaultComposition);
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingComposition(false);
+      });
 
-    fetchPassengerComposition();
-  }, [sessionId, httpInterceptor]);
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionId]);
 
   // Converter dados internos para formato compatível com componentes existentes
-  const flightOffer = React.useMemo((): AmadeusFlightOffer | null => {
-    if (!flight || !flight.amadeusOfferPayload) {
+  const flightOffer = useMemo((): AmadeusFlightOffer | null => {
+    if (!flight?.amadeusOfferPayload) {
       return null;
     }
     return flight.amadeusOfferPayload as AmadeusFlightOffer;
   }, [flight]);
 
   // Extrair dictionaries se disponível (pode ser null para backwards compatibility)
-  const dictionaries = React.useMemo((): AmadeusDictionaries | undefined => {
+  const dictionaries = useMemo((): AmadeusDictionaries | undefined => {
     // Por enquanto, dictionaries será undefined já que não está sendo armazenado na entidade Flight
     // Isso é aceitável pois os componentes devem ser capazes de lidar com dictionaries undefined
     return undefined;
@@ -194,50 +181,54 @@ const CheckoutPage: React.FC = () => {
   // Navegação para confirmação apenas quando pagamento for aprovado
   useEffect(() => {
     if (paymentStatus === 'success' && bookingData) {
-      // Aguardar um pouco para mostrar o feedback visual
-      setTimeout(() => {
-        navigate(`/confirmation/${bookingData.id}`);
+      const timer = setTimeout(() => {
+        if (isMountedRef.current) {
+          navigate(`/confirmation/${bookingData.id}`);
+        }
       }, 2000);
+      
+      return () => clearTimeout(timer);
     }
   }, [paymentStatus, bookingData, navigate]);
 
   // Função para lidar com envio do formulário de passageiro
-  const handlePassengerSubmit = async (data: PassengerFormData | PassengerFormData[]) => {
+  const handlePassengerSubmit = useCallback(async (data: PassengerFormData | PassengerFormData[]) => {
     if (!flightId || !flightOffer) {
       console.error('Dados do voo não disponíveis');
       return;
     }
 
     try {
-      // For now, use the first passenger data for single booking
-      // TODO: Update createBooking to handle multiple passengers
-      const primaryPassenger = Array.isArray(data) ? data[0] : data;
-      const booking = await createBooking(flightId, flightOffer, primaryPassenger);
+      console.log('Creating booking with data:', data);
+      const booking = await createBooking(flightId, flightOffer, data);
+      console.log('Booking created successfully:', booking);
+      
       setBookingData(booking);
+      console.log('Moving to next step...');
       handleNext();
     } catch (error) {
       console.error('Erro ao criar reserva:', error);
+      alert('Erro ao criar reserva. Por favor, tente novamente.');
     }
-  };
-
-
+  }, [flightId, flightOffer, createBooking, handleNext]);
 
   // Funções personalizadas para passar bookingData para os hooks
-  const handleCustomStepClick = (stepIndex: number) => {
+  const handleCustomStepClick = useCallback((stepIndex: number) => {
     handleStepClick(stepIndex, bookingData);
-  };
+  }, [handleStepClick, bookingData]);
 
-  const isCustomStepClickable = (stepIndex: number) => {
+  const isCustomStepClickable = useCallback((stepIndex: number) => {
     return isStepClickable(stepIndex, bookingData);
-  };
+  }, [isStepClickable, bookingData]);
 
-  // Loading state
-  if (flightLoading || loadingComposition) {
+  // Loading state - only show if flight is loading
+  // Passenger composition loading happens in background
+  if (flightLoading) {
     return (
       <Container maxWidth="lg" sx={{ py: 4, textAlign: 'center' }}>
         <CircularProgress />
         <Typography variant="h6" sx={{ mt: 2 }}>
-          {flightLoading ? 'Carregando dados do voo...' : 'Carregando dados dos passageiros...'}
+          Carregando dados do voo...
         </Typography>
       </Container>
     );
@@ -338,8 +329,8 @@ const CheckoutPage: React.FC = () => {
                     passengerCount={passengerCount}
                     passengerTypes={passengerTypes}
                     defaultValues={{
-                      firstName: user?.name?.split(' ')[0] || '',
-                      lastName: user?.name?.split(' ').slice(1).join(' ') || '',
+                      firstName: '',
+                      lastName: '',
                       email: user?.email || '',
                       phone: '',
                       document: '',
@@ -359,16 +350,14 @@ const CheckoutPage: React.FC = () => {
             />
           )}
 
-          {activeStep === 2 && bookingData && (
+          {activeStep === 2 && bookingData && flightOffer && (
             <PaymentSection
               onBack={handleBack}
               bookingId={bookingData.id}
               amount={parseFloat(flightOffer.price.total)}
               description={`Voo ${flightOffer.itineraries[0].segments[0].departure.iataCode} → ${flightOffer.itineraries[0].segments[flightOffer.itineraries[0].segments.length - 1].arrival.iataCode}`}
               paymentStatus={paymentStatus}
-              onPaymentSuccess={() => {
-                handleNext();
-              }}
+              onPaymentSuccess={handleNext}
               onPaymentError={(error: any) => {
                 console.error('Erro no pagamento:', error);
               }}
@@ -401,78 +390,14 @@ const CheckoutPage: React.FC = () => {
         <Box sx={{ flex: '1 1 30%', minWidth: '300px' }}>
           <Stack spacing={3}>
             <FlightSummaryComponent flightOffer={flightOffer} dictionaries={dictionaries} />
-            <PriceSummaryComponent flightOffer={flightOffer} loading={bookingLoading} />
+            <PriceSummaryComponent 
+              flightOffer={flightOffer} 
+              loading={bookingLoading}
+              passengerCount={passengerCount}
+            />
           </Stack>
         </Box>
       </Box>
-
-      {/* Dialog do QR Code */}
-      <Dialog
-        open={showQrCodeDialog}
-        onClose={() => setShowQrCodeDialog(false)}
-        maxWidth="sm"
-        fullWidth
-      >
-        <DialogTitle>
-          <Box sx={{ display: 'flex', alignItems: 'center' }}>
-            <CreditCardIcon sx={{ mr: 1 }} />
-            Pagamento via Stripe
-          </Box>
-        </DialogTitle>
-        <DialogContent>
-          {pixData && (
-            <Box sx={{ textAlign: 'center' }}>
-              <Typography variant="body1" gutterBottom>
-                Escaneie o QR Code abaixo com o app do seu banco:
-              </Typography>
-              
-              <Box sx={{ p: 2, bgcolor: 'white', border: 1, borderColor: 'grey.300', mb: 2 }}>
-                <img
-                  src={`data:image/png;base64,${pixData.qrCodeBase64}`}
-                  alt="QR Code Pix"
-                  style={{ width: '100%', maxWidth: 256 }}
-                />
-              </Box>
-              
-              <Typography variant="body2" color="text.secondary" gutterBottom>
-                Ou copie e cole o código Pix:
-              </Typography>
-              
-              <TextField
-                fullWidth
-                value={pixData.qrCode}
-                InputProps={{
-                  readOnly: true,
-                }}
-                sx={{ mb: 2 }}
-              />
-
-              <Alert severity="warning" sx={{ mb: 2 }}>
-                <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                  <AccessTimeIcon sx={{ mr: 1, fontSize: 20 }} />
-                  <Typography variant="body2">
-                    Este Pix expira em: {new Date(pixData.expirationDate).toLocaleString('pt-BR')}
-                  </Typography>
-                </Box>
-              </Alert>
-
-              {paymentStatus === 'pending' && (
-                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  <CircularProgress size={20} sx={{ mr: 1 }} />
-                  <Typography variant="body2">
-                    Aguardando confirmação do pagamento...
-                  </Typography>
-                </Box>
-              )}
-            </Box>
-          )}
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setShowQrCodeDialog(false)}>
-            Fechar
-          </Button>
-        </DialogActions>
-      </Dialog>
     </Container>
   );
 };

@@ -1,21 +1,25 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import axios from 'axios';
-import { BookingApiService } from './bookingApi';
-import type { BookingHistoryResponse, BookingResponseDto, BookingStatus } from '../types/booking';
+import { getBookings, getBookingById } from './bookingApi';
+import type { BookingHistoryResponse, BookingResponseDto } from '../types/booking';
+import { BookingStatus } from '../types/booking';
+import { httpInterceptor } from '../utils/httpInterceptor';
 
-// Mock axios
-vi.mock('axios');
-const mockedAxios = vi.mocked(axios);
+// Mock httpInterceptor
+vi.mock('../utils/httpInterceptor', () => ({
+  httpInterceptor: {
+    get: vi.fn(),
+  },
+}));
 
-describe('BookingApiService', () => {
-  let bookingApiService: BookingApiService;
-  const mockGetAccessToken = vi.fn();
+const mockedHttpInterceptor = vi.mocked(httpInterceptor);
+
+describe('bookingApi', () => {
   const baseURL = 'http://localhost:3001/api';
 
   beforeEach(() => {
     vi.clearAllMocks();
-    mockGetAccessToken.mockResolvedValue('mock-jwt-token');
-    bookingApiService = new BookingApiService(mockGetAccessToken, baseURL);
+    // Set the environment variable for tests
+    import.meta.env.VITE_API_URL = baseURL;
   });
 
   afterEach(() => {
@@ -28,7 +32,7 @@ describe('BookingApiService', () => {
         id: 'booking-1',
         flightId: 'flight-1',
         userId: 'user-1',
-        status: 'PAID' as BookingStatus,
+        status: BookingStatus.PAID,
         passengers: [
           {
             firstName: 'João',
@@ -48,7 +52,7 @@ describe('BookingApiService', () => {
         id: 'booking-2',
         flightId: 'flight-2',
         userId: 'user-1',
-        status: 'AWAITING_PAYMENT' as BookingStatus,
+        status: BookingStatus.AWAITING_PAYMENT,
         passengers: [
           {
             firstName: 'Maria',
@@ -79,123 +83,98 @@ describe('BookingApiService', () => {
     };
 
     it('should fetch bookings successfully with default parameters', async () => {
-      mockedAxios.get.mockResolvedValueOnce({ data: mockResponse });
+      mockedHttpInterceptor.get.mockResolvedValueOnce({
+        ok: true,
+        json: async () => mockResponse,
+      } as Response);
 
-      const result = await bookingApiService.getBookings();
+      const result = await getBookings();
 
-      expect(mockedAxios.get).toHaveBeenCalledWith(
-        `${baseURL}/bookings`,
-        expect.objectContaining({
-          params: { page: 1, limit: 10 },
-          headers: expect.objectContaining({
-            Authorization: 'Bearer mock-jwt-token',
-          }),
-        })
+      expect(mockedHttpInterceptor.get).toHaveBeenCalledWith(
+        `${baseURL}/bookings?page=1&limit=10`
       );
       expect(result).toEqual(mockResponse);
     });
 
     it('should fetch bookings with custom pagination parameters', async () => {
-      mockedAxios.get.mockResolvedValueOnce({ data: mockResponse });
+      mockedHttpInterceptor.get.mockResolvedValueOnce({
+        ok: true,
+        json: async () => mockResponse,
+      } as Response);
 
-      const result = await bookingApiService.getBookings({ page: 2, limit: 5 });
+      const result = await getBookings({ page: 2, limit: 5 });
 
-      expect(mockedAxios.get).toHaveBeenCalledWith(
-        `${baseURL}/bookings`,
-        expect.objectContaining({
-          params: { page: 2, limit: 5 },
-          headers: expect.objectContaining({
-            Authorization: 'Bearer mock-jwt-token',
-          }),
-        })
+      expect(mockedHttpInterceptor.get).toHaveBeenCalledWith(
+        `${baseURL}/bookings?page=2&limit=5`
       );
       expect(result).toEqual(mockResponse);
     });
 
     it('should fetch bookings with status filter', async () => {
-      mockedAxios.get.mockResolvedValueOnce({ data: mockResponse });
+      mockedHttpInterceptor.get.mockResolvedValueOnce({
+        ok: true,
+        json: async () => mockResponse,
+      } as Response);
 
-      const result = await bookingApiService.getBookings({ 
+      const result = await getBookings({ 
         page: 1, 
         limit: 10, 
-        status: 'PAID' as BookingStatus 
+        status: BookingStatus.PAID
       });
 
-      expect(mockedAxios.get).toHaveBeenCalledWith(
-        `${baseURL}/bookings`,
-        expect.objectContaining({
-          params: { page: 1, limit: 10, status: 'PAID' },
-          headers: expect.objectContaining({
-            Authorization: 'Bearer mock-jwt-token',
-          }),
-        })
+      expect(mockedHttpInterceptor.get).toHaveBeenCalledWith(
+        `${baseURL}/bookings?page=1&limit=10&status=PAID`
       );
       expect(result).toEqual(mockResponse);
     });
 
-    it('should include authentication header in request', async () => {
-      mockedAxios.get.mockResolvedValueOnce({ data: mockResponse });
-
-      await bookingApiService.getBookings();
-
-      expect(mockGetAccessToken).toHaveBeenCalled();
-      expect(mockedAxios.get).toHaveBeenCalledWith(
-        expect.any(String),
-        expect.objectContaining({
-          headers: expect.objectContaining({
-            Authorization: 'Bearer mock-jwt-token',
-          }),
-        })
-      );
-    });
-
     it('should handle network errors', async () => {
-      const networkError = new Error('Network Error');
-      mockedAxios.get.mockRejectedValueOnce(networkError);
+      mockedHttpInterceptor.get.mockRejectedValueOnce(new Error('Network Error'));
 
-      await expect(bookingApiService.getBookings()).rejects.toThrow('Network Error');
+      await expect(getBookings()).rejects.toThrow('Network Error');
     });
 
     it('should handle 401 authentication errors', async () => {
-      const authError = {
+      mockedHttpInterceptor.get.mockResolvedValueOnce({
+        ok: false,
+        status: 401,
+        json: async () => ({ message: 'Unauthorized' }),
+      } as Response);
+
+      await expect(getBookings()).rejects.toMatchObject({
+        message: 'Unauthorized',
         response: {
           status: 401,
-          data: { message: 'Unauthorized' },
         },
-      };
-      mockedAxios.get.mockRejectedValueOnce(authError);
-
-      await expect(bookingApiService.getBookings()).rejects.toMatchObject({
-        response: expect.objectContaining({
-          status: 401,
-        }),
       });
     });
 
     it('should handle 500 server errors', async () => {
-      const serverError = {
+      mockedHttpInterceptor.get.mockResolvedValueOnce({
+        ok: false,
+        status: 500,
+        json: async () => ({ message: 'Internal Server Error' }),
+      } as Response);
+
+      await expect(getBookings()).rejects.toMatchObject({
+        message: 'Internal Server Error',
         response: {
           status: 500,
-          data: { message: 'Internal Server Error' },
         },
-      };
-      mockedAxios.get.mockRejectedValueOnce(serverError);
-
-      await expect(bookingApiService.getBookings()).rejects.toMatchObject({
-        response: expect.objectContaining({
-          status: 500,
-        }),
       });
     });
 
     it('should transform response data correctly', async () => {
-      mockedAxios.get.mockResolvedValueOnce({ data: mockResponse });
+      mockedHttpInterceptor.get.mockResolvedValueOnce({
+        ok: true,
+        json: async () => mockResponse,
+      } as Response);
 
-      const result = await bookingApiService.getBookings();
+      const result = await getBookings();
 
       expect(result.data).toHaveLength(2);
       expect(result.data[0]).toHaveProperty('id', 'booking-1');
-      expect(result.data[0]).toHaveProperty('status', 'PAID');
+      expect(result.data[0]).toHaveProperty('status', BookingStatus.PAID);
       expect(result.data[0].passengers).toHaveLength(1);
       expect(result.data[0].passengers[0]).toHaveProperty('firstName', 'João');
       expect(result.meta).toHaveProperty('total', 2);
@@ -208,7 +187,7 @@ describe('BookingApiService', () => {
       id: 'booking-123',
       flightId: 'flight-456',
       userId: 'user-789',
-      status: 'PAID' as BookingStatus,
+      status: BookingStatus.PAID,
       passengers: [
         {
           firstName: 'Carlos',
@@ -233,154 +212,113 @@ describe('BookingApiService', () => {
       updatedAt: '2024-01-20T09:15:00Z',
     };
 
-    it('should fetch booking by ID successfully', async () => {
-      mockedAxios.get.mockResolvedValueOnce({ 
-        data: {
+    it('should fetch booking by ID successfully with flight details', async () => {
+      mockedHttpInterceptor.get.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
           statusCode: 200,
           message: 'Reserva encontrada',
           data: mockBooking,
-        }
-      });
+        }),
+      } as Response);
 
-      const result = await bookingApiService.getBookingById('booking-123');
+      const result = await getBookingById('booking-123');
 
-      expect(mockedAxios.get).toHaveBeenCalledWith(
-        `${baseURL}/bookings/booking-123`,
-        expect.objectContaining({
-          headers: expect.objectContaining({
-            Authorization: 'Bearer mock-jwt-token',
-          }),
-        })
+      expect(mockedHttpInterceptor.get).toHaveBeenCalledWith(
+        `${baseURL}/bookings/booking-123`
       );
       expect(result).toEqual(mockBooking);
+      expect(result).toHaveProperty('id', 'booking-123');
+      expect(result).toHaveProperty('flightId', 'flight-456');
+      expect(result).toHaveProperty('status', BookingStatus.PAID);
     });
 
-    it('should include authentication header in request', async () => {
-      mockedAxios.get.mockResolvedValueOnce({ 
-        data: {
-          statusCode: 200,
-          data: mockBooking,
-        }
+    it('should handle 404 not found errors', async () => {
+      mockedHttpInterceptor.get.mockResolvedValueOnce({
+        ok: false,
+        status: 404,
+        json: async () => ({ message: 'Booking not found' }),
+      } as Response);
+
+      await expect(getBookingById('invalid-id')).rejects.toMatchObject({
+        message: 'Booking not found',
+        response: {
+          status: 404,
+        },
       });
-
-      await bookingApiService.getBookingById('booking-123');
-
-      expect(mockGetAccessToken).toHaveBeenCalled();
-      expect(mockedAxios.get).toHaveBeenCalledWith(
-        expect.any(String),
-        expect.objectContaining({
-          headers: expect.objectContaining({
-            Authorization: 'Bearer mock-jwt-token',
-          }),
-        })
-      );
-    });
-
-    it('should handle network errors', async () => {
-      const networkError = new Error('Network Error');
-      mockedAxios.get.mockRejectedValueOnce(networkError);
-
-      await expect(bookingApiService.getBookingById('booking-123')).rejects.toThrow('Network Error');
     });
 
     it('should handle 401 authentication errors', async () => {
-      const authError = {
+      mockedHttpInterceptor.get.mockResolvedValueOnce({
+        ok: false,
+        status: 401,
+        json: async () => ({ message: 'Unauthorized' }),
+      } as Response);
+
+      await expect(getBookingById('booking-123')).rejects.toMatchObject({
+        message: 'Unauthorized',
         response: {
           status: 401,
-          data: { message: 'Unauthorized' },
         },
-      };
-      mockedAxios.get.mockRejectedValueOnce(authError);
-
-      await expect(bookingApiService.getBookingById('booking-123')).rejects.toMatchObject({
-        response: expect.objectContaining({
-          status: 401,
-        }),
       });
     });
 
     it('should handle 500 server errors', async () => {
-      const serverError = {
+      mockedHttpInterceptor.get.mockResolvedValueOnce({
+        ok: false,
+        status: 500,
+        json: async () => ({ message: 'Internal Server Error' }),
+      } as Response);
+
+      await expect(getBookingById('booking-123')).rejects.toMatchObject({
+        message: 'Internal Server Error',
         response: {
           status: 500,
-          data: { message: 'Internal Server Error' },
         },
-      };
-      mockedAxios.get.mockRejectedValueOnce(serverError);
-
-      await expect(bookingApiService.getBookingById('booking-123')).rejects.toMatchObject({
-        response: expect.objectContaining({
-          status: 500,
-        }),
       });
     });
 
-    it('should handle 404 not found errors', async () => {
-      const notFoundError = {
-        response: {
-          status: 404,
-          data: { message: 'Booking not found' },
-        },
-      };
-      mockedAxios.get.mockRejectedValueOnce(notFoundError);
-
-      await expect(bookingApiService.getBookingById('invalid-id')).rejects.toMatchObject({
-        response: expect.objectContaining({
-          status: 404,
-        }),
-      });
-    });
-
-    it('should transform response data correctly', async () => {
-      mockedAxios.get.mockResolvedValueOnce({ 
-        data: {
+    it('should validate response data structure', async () => {
+      mockedHttpInterceptor.get.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
           statusCode: 200,
           data: mockBooking,
-        }
-      });
+        }),
+      } as Response);
 
-      const result = await bookingApiService.getBookingById('booking-123');
+      const result = await getBookingById('booking-123');
 
-      expect(result).toHaveProperty('id', 'booking-123');
-      expect(result).toHaveProperty('flightId', 'flight-456');
-      expect(result).toHaveProperty('status', 'PAID');
-      expect(result.passengers).toHaveLength(1);
-      expect(result.passengers[0]).toHaveProperty('firstName', 'Carlos');
-      expect(result).toHaveProperty('payments');
-      expect(result.payments).toHaveLength(1);
-      expect(result).toHaveProperty('notes', 'Window seat preferred');
-    });
-  });
-
-  describe('Authentication Token Handling', () => {
-    it('should handle missing token gracefully', async () => {
-      mockGetAccessToken.mockResolvedValueOnce(null);
-      
-      const mockResponse: BookingHistoryResponse = {
-        statusCode: 200,
-        message: 'Reservas encontradas',
-        data: [],
-        meta: { total: 0, page: 1, limit: 10, totalPages: 0 },
-      };
-      
-      mockedAxios.get.mockResolvedValueOnce({ data: mockResponse });
-
-      await bookingApiService.getBookings();
-
-      expect(mockedAxios.get).toHaveBeenCalledWith(
-        expect.any(String),
-        expect.objectContaining({
-          headers: expect.objectContaining({
-            Authorization: 'Bearer null',
-          }),
-        })
-      );
+      // Validate structure
+      expect(result).toHaveProperty('id');
+      expect(result).toHaveProperty('flightId');
+      expect(result).toHaveProperty('userId');
+      expect(result).toHaveProperty('status');
+      expect(result).toHaveProperty('passengers');
+      expect(result).toHaveProperty('totalAmount');
+      expect(result).toHaveProperty('currency');
+      expect(Array.isArray(result.passengers)).toBe(true);
+      expect(result.passengers[0]).toHaveProperty('firstName');
+      expect(result.passengers[0]).toHaveProperty('lastName');
+      expect(result.passengers[0]).toHaveProperty('email');
     });
 
-    it('should handle token retrieval errors', async () => {
-      mockGetAccessToken.mockRejectedValueOnce(new Error('Token retrieval failed'));
+    it('should handle network errors', async () => {
+      mockedHttpInterceptor.get.mockRejectedValueOnce(new Error('Network Error'));
 
-      await expect(bookingApiService.getBookings()).rejects.toThrow('Token retrieval failed');
+      await expect(getBookingById('booking-123')).rejects.toThrow('Network Error');
+    });
+
+    it('should handle malformed JSON response', async () => {
+      mockedHttpInterceptor.get.mockResolvedValueOnce({
+        ok: false,
+        status: 500,
+        json: async () => {
+          throw new Error('Invalid JSON');
+        },
+      } as Response);
+
+      await expect(getBookingById('booking-123')).rejects.toThrow('Failed to fetch booking');
     });
   });
 });

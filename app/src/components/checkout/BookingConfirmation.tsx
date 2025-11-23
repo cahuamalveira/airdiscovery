@@ -23,10 +23,9 @@ export const BookingConfirmation: React.FC<BookingConfirmationProps> = ({
   onBack,
   onConfirm
 }) => {
-  // Use the first passenger (primary passenger)
-  const primaryPassenger = bookingData.passengers?.[0];
+  const passengers = bookingData.passengers || [];
 
-  if (!primaryPassenger) {
+  if (passengers.length === 0) {
     return (
       <Card elevation={2}>
         <CardContent>
@@ -34,7 +33,7 @@ export const BookingConfirmation: React.FC<BookingConfirmationProps> = ({
             Erro nos Dados da Reserva
           </Typography>
           <Typography variant="body1" color="error">
-            Dados do passageiro não encontrados.
+            Dados dos passageiros não encontrados.
           </Typography>
         </CardContent>
       </Card>
@@ -48,35 +47,44 @@ export const BookingConfirmation: React.FC<BookingConfirmationProps> = ({
           Confirme seus Dados
         </Typography>
         
-        <Stack spacing={2}>
-          <Box>
-            <Typography variant="body2" color="text.secondary">Nome Completo</Typography>
-            <Typography variant="body1">
-              {primaryPassenger.firstName} {primaryPassenger.lastName}
-            </Typography>
-          </Box>
-          
-          <Box>
-            <Typography variant="body2" color="text.secondary">Email</Typography>
-            <Typography variant="body1">{primaryPassenger.email}</Typography>
-          </Box>
-          
-          <Box>
-            <Typography variant="body2" color="text.secondary">Telefone</Typography>
-            <Typography variant="body1">{primaryPassenger.phone}</Typography>
-          </Box>
-          
-          <Box>
-            <Typography variant="body2" color="text.secondary">CPF</Typography>
-            <Typography variant="body1">{primaryPassenger.document}</Typography>
-          </Box>
+        <Stack spacing={3}>
+          {passengers.map((passenger, index) => (
+            <Box key={index}>
+              <Typography variant="subtitle1" fontWeight="bold" gutterBottom>
+                Passageiro {index + 1}
+              </Typography>
+              <Stack spacing={2}>
+                <Box>
+                  <Typography variant="body2" color="text.secondary">Nome Completo</Typography>
+                  <Typography variant="body1">
+                    {passenger.firstName} {passenger.lastName}
+                  </Typography>
+                </Box>
+                
+                <Box>
+                  <Typography variant="body2" color="text.secondary">Email</Typography>
+                  <Typography variant="body1">{passenger.email}</Typography>
+                </Box>
+                
+                <Box>
+                  <Typography variant="body2" color="text.secondary">Telefone</Typography>
+                  <Typography variant="body1">{passenger.phone}</Typography>
+                </Box>
+                
+                <Box>
+                  <Typography variant="body2" color="text.secondary">CPF</Typography>
+                  <Typography variant="body1">{passenger.document}</Typography>
+                </Box>
 
-          <Box>
-            <Typography variant="body2" color="text.secondary">Data de Nascimento</Typography>
-            <Typography variant="body1">
-              {new Date(primaryPassenger.birthDate).toLocaleDateString('pt-BR')}
-            </Typography>
-          </Box>
+                <Box>
+                  <Typography variant="body2" color="text.secondary">Data de Nascimento</Typography>
+                  <Typography variant="body1">
+                    {new Date(passenger.birthDate).toLocaleDateString('pt-BR')}
+                  </Typography>
+                </Box>
+              </Stack>
+            </Box>
+          ))}
         </Stack>
 
         <Box sx={{ display: 'flex', justifyContent: 'space-between', mt: 3 }}>

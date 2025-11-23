@@ -1,8 +1,16 @@
-import { render, screen } from '@testing-library/react';
+import { render } from '@testing-library/react';
 import App from './App';
 
-test('renders learn react link', () => {
-  render(<App />);
-  const linkElement = screen.getByText(/learn react/i);
-  expect(linkElement).toBeInTheDocument();
+describe('App', () => {
+  test('renders without crashing', () => {
+    const { container } = render(<App />);
+    // App should render successfully
+    expect(container).toBeInTheDocument();
+  });
+
+  test('renders application structure', () => {
+    const { container } = render(<App />);
+    // Check that the app renders with content
+    expect(container.querySelector('.MuiBox-root')).toBeInTheDocument();
+  });
 });

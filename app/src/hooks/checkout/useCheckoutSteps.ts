@@ -10,8 +10,11 @@ export const useCheckoutSteps = (initialStep: number = 0) => {
 
   // Função para avançar no stepper
   const handleNext = useCallback(() => {
-    setActiveStep((prevActiveStep) => prevActiveStep + 1);
-  }, []);
+    setActiveStep((prevActiveStep) => {
+      console.log('Moving to next step:', prevActiveStep, '->', prevActiveStep + 1);
+      return prevActiveStep + 1;
+    });
+  }, []); // Empty deps - uses functional update
 
   // Função para voltar no stepper
   const handleBack = useCallback(() => {

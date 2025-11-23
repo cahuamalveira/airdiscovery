@@ -4,9 +4,6 @@ import { PassengerFormData } from '@/components/checkout/PassengerForm';
 import { BookingData } from '@/components/checkout/types';
 import { AmadeusFlightOffer } from '@/hooks/useFlightSearch';
 
-/**
- * Hook para gerenciar reservas
- */
 export const useBooking = () => {
   const [loading, setLoading] = useState(false);
   const httpInterceptor = useHttpInterceptor();
@@ -14,25 +11,31 @@ export const useBooking = () => {
   const createBooking = async (
     flightId: string,
     flightOffer: AmadeusFlightOffer,
-    passengerData: PassengerFormData
+    passengerData: PassengerFormData | PassengerFormData[]
   ): Promise<BookingData> => {
     try {
       setLoading(true);
       
-      // Debug logs
-      console.log('Creating booking with flightId:', flightId);
-      console.log('FlightId type:', typeof flightId);
-      console.log('FlightId is empty:', !flightId);
+      const passengersArray = Array.isArray(passengerData) ? passengerData : [passengerData];
+      const passengerCount = passengersArray.length;
+      
+      // Copy email and phone from primary passenger to all others
+      const passengers = passengersArray.map((passenger, index) => {
+        if (index === 0) return passenger; // Primary passenger keeps all data
+        
+        return {
+          ...passenger,
+          email: passengersArray[0].email, // Use primary passenger's email
+          phone: passengersArray[0].phone, // Use primary passenger's phone
+        };
+      });
       
       const bookingPayload = {
-        flightId: flightId, // Use only the internal flightId
-        passengers: [passengerData],
-        totalAmount: parseFloat(flightOffer?.price?.grandTotal || '0'),
+        flightId,
+        passengers,
+        totalAmount: parseFloat(flightOffer?.price?.grandTotal || '0') * passengerCount,
         currency: flightOffer?.price?.currency || 'BRL'
-        // Removed flightInfo - no longer needed as Flight entity is already created
       };
-
-      console.log('Booking payload:', bookingPayload);
 
       const response = await httpInterceptor.post(`${import.meta.env.VITE_API_URL}/bookings`, bookingPayload);
       const result = await response.json();

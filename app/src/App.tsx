@@ -6,6 +6,7 @@ Amplify.configure(amplifyConfig);
 import { BrowserRouter, Routes, Route, useLocation } from 'react-router-dom';
 import { ThemeProvider, createTheme } from '@mui/material/styles';
 import CssBaseline from '@mui/material/CssBaseline';
+import { Box, CircularProgress } from '@mui/material';
 import { LocalizationProvider } from '@mui/x-date-pickers';
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
 import { ptBR } from 'date-fns/locale';
@@ -19,23 +20,24 @@ import { AuthProvider } from './contexts/AuthContext';
 // Componentes
 import Layout from './components/Layout';
 
-// Páginas
+// Páginas - Lazy loading para melhor performance
 import Home from './pages/Home';
-// import DestinationSelection from './pages/DestinationSelection';
-import RecommendationsPage from './pages/RecommendationsPage';
-import ProfileQuestions from './pages/ProfileQuestions';
-import Results from './pages/Results';
-import FlightSearch from './pages/FlightSearch';
-import FlightPurchase from './pages/FlightPurchase';
-import CheckoutPage from './pages/CheckoutPage';
-import ConfirmationPage from './pages/ConfirmationPage';
-import Wishlist from './pages/Wishlist';
-import BookingHistoryPage from './pages/BookingHistoryPage';
-import ChatSessionManager from './pages/ChatSessionManager';
-import AdminDashboard from './pages/AdminDashboard';
-import NotFound from './pages/NotFound';
 import CustomAuthenticator from './components/CustomAuthenticator';
-import ChatPageV2WithErrorBoundary from './pages/ChatPageV2';
+
+// Lazy load páginas autenticadas
+const RecommendationsPage = React.lazy(() => import('./pages/RecommendationsPage'));
+const Results = React.lazy(() => import('./pages/Results'));
+const FlightSearch = React.lazy(() => import('./pages/FlightSearch'));
+const FlightPurchase = React.lazy(() => import('./pages/FlightPurchase'));
+const CheckoutPage = React.lazy(() => import('./pages/CheckoutPage'));
+const ConfirmationPage = React.lazy(() => import('./pages/ConfirmationPage'));
+const Wishlist = React.lazy(() => import('./pages/Wishlist'));
+const BookingHistoryPage = React.lazy(() => import('./pages/BookingHistoryPage'));
+const BookingDetailPage = React.lazy(() => import('./pages/BookingDetailPage'));
+const ChatSessionManager = React.lazy(() => import('./pages/ChatSessionManager'));
+const ChatPageV2WithErrorBoundary = React.lazy(() => import('./pages/ChatPageV2'));
+const AdminDashboard = React.lazy(() => import('./pages/AdminDashboard'));
+const NotFound = React.lazy(() => import('./pages/NotFound'));
 import { loadStripe } from '@stripe/stripe-js';
 import { Elements } from '@stripe/react-stripe-js';
 
@@ -65,8 +67,8 @@ const theme = createTheme({
 const queryClient = new QueryClient({
     defaultOptions: {
         queries: {
-            staleTime: 5 * 60 * 1000, // 5 minutos
-            gcTime: 10 * 60 * 1000, // 10 minutos (antes era cacheTime)
+            staleTime: 1 * 60 * 1000, // 1 minuto - dados considerados frescos
+            gcTime: 10 * 60 * 1000, // 10 minutos - tempo de cache (antes era cacheTime)
             retry: (failureCount, error) => {
                 // Não tentar novamente para erros 4xx
                 if (error && typeof error === 'object' && 'status' in error) {
@@ -78,9 +80,25 @@ const queryClient = new QueryClient({
                 return failureCount < 3;
             },
             refetchOnWindowFocus: false,
+            // Stale-while-revalidate: mostra dados em cache enquanto busca novos
+            refetchOnMount: 'always',
+            // Mantém dados anteriores enquanto busca novos
+            placeholderData: (previousData: unknown) => previousData,
         },
     },
 });
+
+// Loading fallback component
+const LoadingFallback: React.FC = () => (
+    <Box
+        display="flex"
+        justifyContent="center"
+        alignItems="center"
+        minHeight="60vh"
+    >
+        <CircularProgress />
+    </Box>
+);
 
 const AppContent: React.FC = () => {
     const location = useLocation();
@@ -100,22 +118,25 @@ const AppContent: React.FC = () => {
         <CustomAuthenticator>
             {({ signOut, user }) => (
                 <AuthProvider signOut={signOut} user={user}>
-                    <Routes>
-                        <Route path="/" element={<Layout isAuthenticated={!!user} user={user} logout={signOut} />}>
-                            <Route path="recomendacoes/:origin/:destination" element={<RecommendationsPage />} />
-                            <Route path="resultados/:destinationId/:profileType" element={<Results />} />
-                            <Route path="voos" element={<FlightSearch />} />
-                            <Route path="checkout/:flightId" element={<CheckoutPage />} />
-                            <Route path="confirmation/:bookingId" element={<ConfirmationPage />} />
-                            <Route path="voos/selecionar/:flightId/:date" element={<FlightPurchase />} />
-                            <Route path="wishlist" element={<Wishlist />} />
-                            <Route path="minhas-reservas" element={<BookingHistoryPage />} />
-                            <Route path="chat" element={<ChatSessionManager />} />
-                            <Route path="chat/session/:sessionId" element={<ChatPageV2WithErrorBoundary />} />
-                            <Route path="admin" element={<AdminDashboard />} />
-                            <Route path="*" element={<NotFound />} />
-                        </Route>
-                    </Routes>
+                    <React.Suspense fallback={<LoadingFallback />}>
+                        <Routes>
+                            <Route path="/" element={<Layout isAuthenticated={!!user} user={user} logout={signOut} />}>
+                                <Route path="recomendacoes/:origin/:destination" element={<RecommendationsPage />} />
+                                <Route path="resultados/:destinationId/:profileType" element={<Results />} />
+                                <Route path="voos" element={<FlightSearch />} />
+                                <Route path="checkout/:flightId" element={<CheckoutPage />} />
+                                <Route path="confirmation/:bookingId" element={<ConfirmationPage />} />
+                                <Route path="voos/selecionar/:flightId/:date" element={<FlightPurchase />} />
+                                <Route path="wishlist" element={<Wishlist />} />
+                                <Route path="minhas-reservas" element={<BookingHistoryPage />} />
+                                <Route path="minhas-reservas/:bookingId" element={<BookingDetailPage />} />
+                                <Route path="chat" element={<ChatSessionManager />} />
+                                <Route path="chat/session/:sessionId" element={<ChatPageV2WithErrorBoundary />} />
+                                <Route path="admin" element={<AdminDashboard />} />
+                                <Route path="*" element={<NotFound />} />
+                            </Route>
+                        </Routes>
+                    </React.Suspense>
                 </AuthProvider>
             )}
         </CustomAuthenticator>

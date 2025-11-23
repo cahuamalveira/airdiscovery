@@ -1,4 +1,5 @@
 import React from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   Card,
   CardContent,
@@ -20,6 +21,13 @@ interface BookingCardProps {
 }
 
 const BookingCard: React.FC<BookingCardProps> = ({ booking }) => {
+  const navigate = useNavigate();
+
+  // Handle card click to navigate to detail page
+  const handleCardClick = () => {
+    navigate(`/minhas-reservas/${booking.id}`);
+  };
+
   // Status configuration
   const getStatusConfig = (status: BookingStatus) => {
     switch (status) {
@@ -89,10 +97,12 @@ const BookingCard: React.FC<BookingCardProps> = ({ booking }) => {
   return (
     <Card
       data-testid="booking-card"
+      onClick={handleCardClick}
       sx={{
         height: '100%',
         display: 'flex',
         flexDirection: 'column',
+        cursor: 'pointer',
         transition: 'transform 0.2s, box-shadow 0.2s',
         '&:hover': {
           transform: 'translateY(-4px)',

@@ -14,7 +14,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 
 /**
- * Esquema de validação para dados do passageiro usando Zod
+ * Passenger schema - for single passenger (all fields required)
  */
 const passengerSchema = z.object({
   firstName: z.string()
@@ -44,13 +44,45 @@ const passengerSchema = z.object({
 });
 
 /**
- * Esquema de validação para múltiplos passageiros
+ * Multi-passenger schema - email/phone optional for non-primary passengers
  */
 const multiPassengerSchema = z.object({
-  passengers: z.array(passengerSchema).min(1, 'Pelo menos um passageiro é obrigatório')
+  passengers: z.array(z.object({
+    firstName: z.string()
+      .min(2, 'Nome deve ter pelo menos 2 caracteres')
+      .max(50, 'Nome deve ter no máximo 50 caracteres')
+      .regex(/^[a-zA-ZÀ-ÿ\s]+$/, 'Nome deve conter apenas letras'),
+    lastName: z.string()
+      .min(2, 'Sobrenome deve ter pelo menos 2 caracteres')
+      .max(50, 'Sobrenome deve ter no máximo 50 caracteres')
+      .regex(/^[a-zA-ZÀ-ÿ\s]+$/, 'Sobrenome deve conter apenas letras'),
+    email: z.string().optional().default(''),
+    phone: z.string().optional().default(''),
+    document: z.string()
+      .regex(/^\d{3}\.\d{3}\.\d{3}-\d{2}$/, 'CPF deve estar no formato 999.999.999-99'),
+    birthDate: z.string()
+      .regex(/^\d{4}-\d{2}-\d{2}$/, 'Data de nascimento deve estar no formato AAAA-MM-DD')
+      .refine((date) => {
+        const birthDate = new Date(date);
+        const today = new Date();
+        const age = today.getFullYear() - birthDate.getFullYear();
+        return age >= 0 && age <= 120;
+      }, 'Idade deve estar entre 0 e 120 anos')
+  })).min(1, 'Pelo menos um passageiro é obrigatório')
+}).refine((data) => {
+  // First passenger must have email and phone
+  if (data.passengers.length > 0) {
+    const first = data.passengers[0];
+    return first.email && first.email.length >= 5 && first.phone && first.phone.length >= 10;
+  }
+  return true;
+}, {
+  message: 'Passageiro principal deve ter email e telefone válidos',
+  path: ['passengers', 0, 'email']
 });
 
 export type PassengerFormData = z.infer<typeof passengerSchema>;
+type MultiPassengerFormData = z.infer<typeof multiPassengerSchema>;
 
 /**
  * Tipo de passageiro com informações adicionais
@@ -127,10 +159,10 @@ export const PassengerForm: React.FC<PassengerFormProps> = ({
     };
   }, [passengerTypes, defaultValues]);
 
-  const multiForm = useForm<{ passengers: PassengerFormData[] }>({
-    resolver: zodResolver(multiPassengerSchema),
+  const multiForm = useForm<MultiPassengerFormData>({
+    resolver: zodResolver(multiPassengerSchema) as any,
     mode: 'onChange',
-    defaultValues: multiFormDefaultValues
+    defaultValues: multiFormDefaultValues as any
   });
 
   // Função para formatar CPF
@@ -176,8 +208,8 @@ export const PassengerForm: React.FC<PassengerFormProps> = ({
   };
 
   // Handler de submit para modo múltiplo
-  const handleMultiSubmit = (data: { passengers: PassengerFormData[] }) => {
-    onSubmit(data.passengers);
+  const handleMultiSubmit = (data: MultiPassengerFormData) => {
+    onSubmit(data.passengers as PassengerFormData[]);
   };
 
   // Renderiza campos de um passageiro para modo único
@@ -304,6 +336,7 @@ export const PassengerForm: React.FC<PassengerFormProps> = ({
   const renderMultiPassengerFields = (index: number) => {
     const { control, formState: { errors } } = multiForm;
     const fieldErrors = errors.passengers?.[index];
+    const isPrimary = index === 0;
 
     return (
       <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 3 }}>
@@ -339,44 +372,48 @@ export const PassengerForm: React.FC<PassengerFormProps> = ({
           />
         </Box>
 
-        <Box sx={{ flex: '1 1 100%' }}>
-          <Controller
-            name={`passengers.${index}.email`}
-            control={control}
-            render={({ field }) => (
-              <TextField
-                {...field}
-                fullWidth
-                type="email"
-                label="Email *"
-                error={!!fieldErrors?.email}
-                helperText={fieldErrors?.email?.message}
+        {isPrimary && (
+          <>
+            <Box sx={{ flex: '1 1 100%' }}>
+              <Controller
+                name={`passengers.${index}.email`}
+                control={control}
+                render={({ field }) => (
+                  <TextField
+                    {...field}
+                    fullWidth
+                    type="email"
+                    label="Email *"
+                    error={!!fieldErrors?.email}
+                    helperText={fieldErrors?.email?.message}
+                  />
+                )}
               />
-            )}
-          />
-        </Box>
+            </Box>
 
-        <Box sx={{ flex: '1 1 45%', minWidth: '200px' }}>
-          <Controller
-            name={`passengers.${index}.phone`}
-            control={control}
-            render={({ field: { onChange, value, ...field } }) => (
-              <TextField
-                {...field}
-                fullWidth
-                label="Telefone *"
-                placeholder="(11) 99999-9999"
-                value={value}
-                onChange={(e) => {
-                  const formatted = formatPhone(e.target.value);
-                  onChange(formatted);
-                }}
-                error={!!fieldErrors?.phone}
-                helperText={fieldErrors?.phone?.message}
+            <Box sx={{ flex: '1 1 45%', minWidth: '200px' }}>
+              <Controller
+                name={`passengers.${index}.phone`}
+                control={control}
+                render={({ field: { onChange, value, ...field } }) => (
+                  <TextField
+                    {...field}
+                    fullWidth
+                    label="Telefone *"
+                    placeholder="(11) 99999-9999"
+                    value={value}
+                    onChange={(e) => {
+                      const formatted = formatPhone(e.target.value);
+                      onChange(formatted);
+                    }}
+                    error={!!fieldErrors?.phone}
+                    helperText={fieldErrors?.phone?.message}
+                  />
+                )}
               />
-            )}
-          />
-        </Box>
+            </Box>
+          </>
+        )}
 
         <Box sx={{ flex: '1 1 45%', minWidth: '200px' }}>
           <Controller

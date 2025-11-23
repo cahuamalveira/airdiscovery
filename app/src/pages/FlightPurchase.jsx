@@ -35,7 +35,7 @@ function FlightPurchase() {
   const [activeStep, setActiveStep] = useState(0);
   const [flight, setFlight] = useState(null);
   const [passengerData, setPassengerData] = useState({
-    name: user?.name || '',
+    name: '',
     email: user?.email || '',
     document: '',
     phone: ''

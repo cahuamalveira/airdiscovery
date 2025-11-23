@@ -1,8 +1,14 @@
 import { render, screen } from '@testing-library/react';
 import { describe, it, expect } from 'vitest';
+import { MemoryRouter } from 'react-router-dom';
 import BookingCard from './BookingCard';
 import { BookingStatus } from '../../types/booking';
 import type { BookingResponseDto } from '../../types/booking';
+
+// Helper function to render with Router
+const renderWithRouter = (component: React.ReactElement) => {
+  return render(<MemoryRouter>{component}</MemoryRouter>);
+};
 
 describe('BookingCard', () => {
   const baseBooking: BookingResponseDto = {
@@ -33,7 +39,7 @@ describe('BookingCard', () => {
         status: BookingStatus.PAID,
       };
 
-      render(<BookingCard booking={booking} />);
+      renderWithRouter(<BookingCard booking={booking} />);
 
       expect(screen.getByText('Confirmada')).toBeInTheDocument();
       expect(screen.getByTestId('booking-status-chip')).toHaveClass('MuiChip-colorSuccess');
@@ -45,7 +51,7 @@ describe('BookingCard', () => {
         status: BookingStatus.AWAITING_PAYMENT,
       };
 
-      render(<BookingCard booking={booking} />);
+      renderWithRouter(<BookingCard booking={booking} />);
 
       expect(screen.getByText('Aguardando Pagamento')).toBeInTheDocument();
       expect(screen.getByTestId('booking-status-chip')).toHaveClass('MuiChip-colorWarning');
@@ -57,7 +63,7 @@ describe('BookingCard', () => {
         status: BookingStatus.PENDING,
       };
 
-      render(<BookingCard booking={booking} />);
+      renderWithRouter(<BookingCard booking={booking} />);
 
       expect(screen.getByText('Pendente')).toBeInTheDocument();
       expect(screen.getByTestId('booking-status-chip')).toHaveClass('MuiChip-colorInfo');
@@ -69,7 +75,7 @@ describe('BookingCard', () => {
         status: BookingStatus.CANCELLED,
       };
 
-      render(<BookingCard booking={booking} />);
+      renderWithRouter(<BookingCard booking={booking} />);
 
       expect(screen.getByText('Cancelada')).toBeInTheDocument();
       expect(screen.getByTestId('booking-status-chip')).toHaveClass('MuiChip-colorError');
@@ -78,7 +84,7 @@ describe('BookingCard', () => {
 
   describe('Flight Route Display', () => {
     it('displays flight route correctly', () => {
-      render(<BookingCard booking={baseBooking} />);
+      renderWithRouter(<BookingCard booking={baseBooking} />);
 
       // Should display route in format "GRU → JFK" or similar
       expect(screen.getByText(/→/)).toBeInTheDocument();
@@ -92,7 +98,7 @@ describe('BookingCard', () => {
         createdAt: '2024-01-15T10:00:00Z',
       };
 
-      render(<BookingCard booking={booking} />);
+      renderWithRouter(<BookingCard booking={booking} />);
 
       // Date should be formatted in Brazilian Portuguese format
       // e.g., "15/01/2024" or "15 de janeiro de 2024"
@@ -106,7 +112,7 @@ describe('BookingCard', () => {
         createdAt: undefined,
       };
 
-      render(<BookingCard booking={booking} />);
+      renderWithRouter(<BookingCard booking={booking} />);
 
       // Should still render without crashing
       expect(screen.getByTestId('booking-card')).toBeInTheDocument();
@@ -129,7 +135,7 @@ describe('BookingCard', () => {
         ],
       };
 
-      render(<BookingCard booking={booking} />);
+      renderWithRouter(<BookingCard booking={booking} />);
 
       expect(screen.getByText(/1 passageiro/i)).toBeInTheDocument();
     });
@@ -157,7 +163,7 @@ describe('BookingCard', () => {
         ],
       };
 
-      render(<BookingCard booking={booking} />);
+      renderWithRouter(<BookingCard booking={booking} />);
 
       expect(screen.getByText(/2 passageiros/i)).toBeInTheDocument();
     });
@@ -168,7 +174,7 @@ describe('BookingCard', () => {
         passengers: [],
       };
 
-      render(<BookingCard booking={booking} />);
+      renderWithRouter(<BookingCard booking={booking} />);
 
       expect(screen.getByText(/0 passageiros/i)).toBeInTheDocument();
     });
@@ -182,7 +188,7 @@ describe('BookingCard', () => {
         currency: 'BRL',
       };
 
-      render(<BookingCard booking={booking} />);
+      renderWithRouter(<BookingCard booking={booking} />);
 
       // Should display as "R$ 4.500,00" with Brazilian formatting
       expect(screen.getByText(/R\$\s*4\.500,00/)).toBeInTheDocument();
@@ -195,7 +201,7 @@ describe('BookingCard', () => {
         currency: 'BRL',
       };
 
-      render(<BookingCard booking={booking} />);
+      renderWithRouter(<BookingCard booking={booking} />);
 
       expect(screen.getByText(/R\$\s*99,99/)).toBeInTheDocument();
     });
@@ -207,7 +213,7 @@ describe('BookingCard', () => {
         currency: 'BRL',
       };
 
-      render(<BookingCard booking={booking} />);
+      renderWithRouter(<BookingCard booking={booking} />);
 
       expect(screen.getByText(/R\$\s*1\.234\.567,89/)).toBeInTheDocument();
     });
@@ -219,7 +225,7 @@ describe('BookingCard', () => {
         currency: 'BRL',
       };
 
-      render(<BookingCard booking={booking} />);
+      renderWithRouter(<BookingCard booking={booking} />);
 
       expect(screen.getByText(/R\$\s*0,00/)).toBeInTheDocument();
     });
@@ -232,7 +238,7 @@ describe('BookingCard', () => {
         status: BookingStatus.PAID,
       };
 
-      render(<BookingCard booking={booking} />);
+      renderWithRouter(<BookingCard booking={booking} />);
 
       const statusChip = screen.getByTestId('booking-status-chip');
       expect(statusChip).toHaveClass('MuiChip-colorSuccess');
@@ -244,7 +250,7 @@ describe('BookingCard', () => {
         status: BookingStatus.AWAITING_PAYMENT,
       };
 
-      render(<BookingCard booking={booking} />);
+      renderWithRouter(<BookingCard booking={booking} />);
 
       const statusChip = screen.getByTestId('booking-status-chip');
       expect(statusChip).toHaveClass('MuiChip-colorWarning');
@@ -256,7 +262,7 @@ describe('BookingCard', () => {
         status: BookingStatus.PENDING,
       };
 
-      render(<BookingCard booking={booking} />);
+      renderWithRouter(<BookingCard booking={booking} />);
 
       const statusChip = screen.getByTestId('booking-status-chip');
       expect(statusChip).toHaveClass('MuiChip-colorInfo');
@@ -268,7 +274,7 @@ describe('BookingCard', () => {
         status: BookingStatus.CANCELLED,
       };
 
-      render(<BookingCard booking={booking} />);
+      renderWithRouter(<BookingCard booking={booking} />);
 
       const statusChip = screen.getByTestId('booking-status-chip');
       expect(statusChip).toHaveClass('MuiChip-colorError');
@@ -282,7 +288,7 @@ describe('BookingCard', () => {
         status: BookingStatus.PAID,
       };
 
-      render(<BookingCard booking={booking} />);
+      renderWithRouter(<BookingCard booking={booking} />);
 
       expect(screen.getByText('Confirmada')).toBeInTheDocument();
     });
@@ -293,7 +299,7 @@ describe('BookingCard', () => {
         status: BookingStatus.AWAITING_PAYMENT,
       };
 
-      render(<BookingCard booking={booking} />);
+      renderWithRouter(<BookingCard booking={booking} />);
 
       expect(screen.getByText('Aguardando Pagamento')).toBeInTheDocument();
     });
@@ -304,7 +310,7 @@ describe('BookingCard', () => {
         status: BookingStatus.PENDING,
       };
 
-      render(<BookingCard booking={booking} />);
+      renderWithRouter(<BookingCard booking={booking} />);
 
       expect(screen.getByText('Pendente')).toBeInTheDocument();
     });
@@ -315,7 +321,7 @@ describe('BookingCard', () => {
         status: BookingStatus.CANCELLED,
       };
 
-      render(<BookingCard booking={booking} />);
+      renderWithRouter(<BookingCard booking={booking} />);
 
       expect(screen.getByText('Cancelada')).toBeInTheDocument();
     });
@@ -323,7 +329,7 @@ describe('BookingCard', () => {
 
   describe('Component Structure', () => {
     it('renders as a Material-UI Card', () => {
-      render(<BookingCard booking={baseBooking} />);
+      renderWithRouter(<BookingCard booking={baseBooking} />);
 
       const card = screen.getByTestId('booking-card');
       expect(card).toBeInTheDocument();
@@ -331,7 +337,7 @@ describe('BookingCard', () => {
     });
 
     it('renders all required booking information', () => {
-      render(<BookingCard booking={baseBooking} />);
+      renderWithRouter(<BookingCard booking={baseBooking} />);
 
       // Should have status
       expect(screen.getByTestId('booking-status-chip')).toBeInTheDocument();

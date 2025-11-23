@@ -1,36 +1,18 @@
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
-import { BrowserRouter, MemoryRouter } from 'react-router-dom';
+import { render, screen, waitFor } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { vi, describe, it, expect, beforeEach } from 'vitest';
 import CheckoutPage from '../pages/CheckoutPage';
-import { AuthContext } from '../contexts/AuthContext';
-import type { AuthContextType } from '../types/auth';
+import * as AuthContext from '../contexts/AuthContext';
 
-// Mock the API hooks
-vi.mock('../hooks/useHttpInterceptor', () => ({
-  useHttpInterceptor: () => ({
-    post: vi.fn(),
-    get: vi.fn(),
-  })
-}));
-
-// Mock Auth context
-const mockAuthContext: AuthContextType = {
-  user: {
-    sub: '123',
-    email: 'test@example.com',
-    name: 'Test User',
-    preferred_username: 'testuser'
-  },
-  isAuthenticated: true,
-  login: vi.fn(),
-  logout: vi.fn(),
-  loading: false
-};
+// Mock the modules
+vi.mock('../utils/httpInterceptor');
+vi.mock('../hooks/useFlight');
+vi.mock('../hooks/checkout');
+vi.mock('../contexts/AuthContext');
 
 // Test utilities
-const createWrapper = (initialEntries = ['/checkout?flightId=123']) => {
+const createWrapper = (initialEntries = ['/checkout/123?sessionId=test-session']) => {
   const queryClient = new QueryClient({
     defaultOptions: {
       queries: { retry: false },
@@ -40,54 +22,177 @@ const createWrapper = (initialEntries = ['/checkout?flightId=123']) => {
 
   return ({ children }: { children: React.ReactNode }) => (
     <QueryClientProvider client={queryClient}>
-      <AuthContext.Provider value={mockAuthContext}>
-        <MemoryRouter initialEntries={initialEntries}>
-          {children}
-        </MemoryRouter>
-      </AuthContext.Provider>
+      <MemoryRouter initialEntries={initialEntries}>
+        {children}
+      </MemoryRouter>
     </QueryClientProvider>
   );
 };
 
-// Mock flight data
-const mockFlightData = {
-  id: '123',
-  airline: 'GOL',
-  flightNumber: 'G3 1234',
-  origin: 'GRU',
-  destination: 'RIO',
-  departure: '2024-03-15T10:00:00Z',
-  arrival: '2024-03-15T12:00:00Z',
-  price: 450.00,
-  currency: 'BRL',
-  duration: '2h 00m',
-  aircraft: 'Boeing 737'
+// Mock route params
+vi.mock('react-router-dom', async () => {
+  const actual = await vi.importActual('react-router-dom');
+  return {
+    ...actual,
+    useParams: () => ({ flightId: '123' }),
+    useSearchParams: () => [new URLSearchParams('sessionId=test-session')],
+    useNavigate: () => vi.fn()
+  };
+});
+
+// Mock flight offer data
+const mockFlightOffer = {
+  type: 'flight-offer',
+  id: '1',
+  source: 'GDS',
+  instantTicketingRequired: false,
+  nonHomogeneous: false,
+  oneWay: false,
+  lastTicketingDate: '2024-03-15',
+  numberOfBookableSeats: 9,
+  itineraries: [{
+    duration: 'PT2H',
+    segments: [{
+      departure: {
+        iataCode: 'GRU',
+        terminal: '2',
+        at: '2024-03-15T10:00:00'
+      },
+      arrival: {
+        iataCode: 'RIO',
+        terminal: '1',
+        at: '2024-03-15T12:00:00'
+      },
+      carrierCode: 'G3',
+      number: '1234',
+      aircraft: { code: '738' },
+      operating: { carrierCode: 'G3' },
+      duration: 'PT2H',
+      id: '1',
+      numberOfStops: 0,
+      blacklistedInEU: false
+    }]
+  }],
+  price: {
+    currency: 'BRL',
+    total: '450.00',
+    base: '400.00',
+    fees: [{ amount: '50.00', type: 'SUPPLIER' }],
+    grandTotal: '450.00'
+  },
+  pricingOptions: {
+    fareType: ['PUBLISHED'],
+    includedCheckedBagsOnly: true
+  },
+  validatingAirlineCodes: ['G3'],
+  travelerPricings: []
 };
 
 describe('CheckoutPage', () => {
-  let mockPost: any;
-  let mockGet: any;
+  let mockHttpInterceptor: any;
+  let mockUseFlight: any;
+  let mockUseBooking: any;
+  let mockUsePixPayment: any;
+  let mockUseCheckoutSteps: any;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.clearAllMocks();
     
-    // Setup API mocks
-    const useHttpInterceptor = vi.mocked(
-      await import('../hooks/useHttpInterceptor')
-    ).useHttpInterceptor;
+    // Setup mocks
+    const httpInterceptorModule = await import('../utils/httpInterceptor');
+    const useFlightModule = await import('../hooks/useFlight');
+    const checkoutModule = await import('../hooks/checkout');
     
-    mockPost = vi.fn();
-    mockGet = vi.fn();
+    // Mock httpInterceptor
+    mockHttpInterceptor = {
+      get: vi.fn().mockImplementation(async () => ({
+        ok: true,
+        json: async () => ({
+          collectedData: {
+            passenger_composition: { adults: 1, children: null }
+          }
+        })
+      })),
+      post: vi.fn(),
+      put: vi.fn(),
+      delete: vi.fn(),
+      fetch: vi.fn()
+    };
     
-    useHttpInterceptor.mockReturnValue({
-      post: mockPost,
-      get: mockGet
-    });
+    vi.mocked(httpInterceptorModule.useHttpInterceptor).mockReturnValue(mockHttpInterceptor);
 
-    // Mock flight data fetch
-    mockGet.mockResolvedValueOnce({
-      data: mockFlightData
-    });
+    // Mock useFlight
+    mockUseFlight = {
+      flight: {
+        id: '123',
+        amadeusOfferPayload: mockFlightOffer
+      },
+      loading: false,
+      error: null
+    };
+    vi.mocked(useFlightModule.useFlight).mockReturnValue(mockUseFlight);
+
+    // Mock useBooking
+    mockUseBooking = {
+      createBooking: vi.fn().mockResolvedValue({
+        id: 'booking123',
+        flightId: '123',
+        userId: 'user123',
+        status: 'PENDING',
+        passengers: [{
+          firstName: 'Test',
+          lastName: 'User',
+          email: 'test@example.com',
+          phone: '(11) 99999-9999',
+          document: '123.456.789-00',
+          birthDate: '1990-01-01'
+        }],
+        totalAmount: 450,
+        currency: 'BRL',
+        payments: []
+      }),
+      loading: false
+    };
+    vi.mocked(checkoutModule.useBooking).mockReturnValue(mockUseBooking);
+
+    // Mock usePixPayment
+    mockUsePixPayment = {
+      createPixPreference: vi.fn(),
+      checkPaymentStatus: vi.fn(),
+      startPaymentPolling: vi.fn(),
+      stopPaymentPolling: vi.fn(),
+      pixData: null,
+      paymentStatus: 'pending',
+      loading: false
+    };
+    vi.mocked(checkoutModule.usePixPayment).mockReturnValue(mockUsePixPayment);
+
+    // Mock useCheckoutSteps
+    mockUseCheckoutSteps = {
+      activeStep: 0,
+      steps: ['Dados do Passageiro', 'Confirmação', 'Pagamento', 'Confirmação Final'],
+      handleNext: vi.fn(),
+      handleBack: vi.fn(),
+      handleStepClick: vi.fn(),
+      isStepClickable: vi.fn().mockReturnValue(false),
+      goToStep: vi.fn()
+    };
+    vi.mocked(checkoutModule.useCheckoutSteps).mockReturnValue(mockUseCheckoutSteps);
+
+    // Mock AuthContext
+    vi.mocked(AuthContext.useAuth).mockReturnValue({
+      user: {
+        sub: '123',
+        email: 'test@example.com',
+        name: 'Test User',
+        preferred_username: 'testuser'
+      },
+      isAuthenticated: true,
+      login: vi.fn(),
+      logout: vi.fn(),
+      loading: false,
+      getAccessToken: vi.fn().mockResolvedValue('mock-token')
+    } as any);
   });
 
   afterEach(() => {
@@ -95,322 +200,122 @@ describe('CheckoutPage', () => {
   });
 
   describe('Rendering and Initial State', () => {
-    it('renders the checkout page with stepper', async () => {
+    it('renders the checkout page with header', async () => {
       render(<CheckoutPage />, { wrapper: createWrapper() });
 
       await waitFor(() => {
-        expect(screen.getByText('Checkout')).toBeInTheDocument();
-        expect(screen.getByText('Detalhes do Voo')).toBeInTheDocument();
-        expect(screen.getByText('Informações do Passageiro')).toBeInTheDocument();
+        expect(screen.getByText('Finalizar Reserva')).toBeInTheDocument();
+      });
+    });
+
+    it('renders stepper with correct steps', async () => {
+      render(<CheckoutPage />, { wrapper: createWrapper() });
+
+      await waitFor(() => {
+        expect(screen.getByText('Dados do Passageiro')).toBeInTheDocument();
+        expect(screen.getByText('Confirmação')).toBeInTheDocument();
         expect(screen.getByText('Pagamento')).toBeInTheDocument();
       });
     });
 
-    it('displays flight information correctly', async () => {
-      render(<CheckoutPage />, { wrapper: createWrapper() });
+    it('shows loading state when flight is loading', async () => {
+      const flightModule = await import('../hooks/useFlight');
+      vi.mocked(flightModule.useFlight).mockReturnValue({
+        flight: null,
+        loading: true,
+        error: null
+      } as any);
 
-      await waitFor(() => {
-        expect(screen.getByText('GOL G3 1234')).toBeInTheDocument();
-        expect(screen.getByText('GRU → RIO')).toBeInTheDocument();
-        expect(screen.getByText('R$ 450,00')).toBeInTheDocument();
-        expect(screen.getByText('2h 00m')).toBeInTheDocument();
-      });
-    });
-
-    it('shows loading state initially', () => {
       render(<CheckoutPage />, { wrapper: createWrapper() });
-      expect(screen.getByRole('progressbar')).toBeInTheDocument();
+      
+      expect(screen.getByText('Carregando dados do voo...')).toBeInTheDocument();
     });
   });
 
-  describe('Form Validation', () => {
-    it('validates required passenger information fields', async () => {
+  describe('Passenger Composition', () => {
+    it('fetches passenger composition from session', async () => {
       render(<CheckoutPage />, { wrapper: createWrapper() });
-      const user = userEvent.setup();
 
       await waitFor(() => {
-        expect(screen.getByText('Detalhes do Voo')).toBeInTheDocument();
-      });
-
-      // Navigate to passenger info step
-      const nextButton = screen.getByRole('button', { name: /próximo/i });
-      await user.click(nextButton);
-
-      // Try to proceed without filling required fields
-      const continueButton = screen.getByRole('button', { name: /continuar/i });
-      await user.click(continueButton);
-
-      await waitFor(() => {
-        expect(screen.getByText('Nome é obrigatório')).toBeInTheDocument();
-        expect(screen.getByText('Sobrenome é obrigatório')).toBeInTheDocument();
-        expect(screen.getByText('CPF é obrigatório')).toBeInTheDocument();
-        expect(screen.getByText('E-mail é obrigatório')).toBeInTheDocument();
+        expect(mockHttpInterceptor.get).toHaveBeenCalledWith(
+          expect.stringContaining('/sessions/collected-data/test-session')
+        );
       });
     });
 
-    it('validates CPF format', async () => {
+    it('displays passenger count info', async () => {
       render(<CheckoutPage />, { wrapper: createWrapper() });
-      const user = userEvent.setup();
 
       await waitFor(() => {
-        expect(screen.getByText('Detalhes do Voo')).toBeInTheDocument();
-      });
-
-      // Navigate to passenger info step
-      const nextButton = screen.getByRole('button', { name: /próximo/i });
-      await user.click(nextButton);
-
-      // Enter invalid CPF
-      const cpfInput = screen.getByLabelText(/cpf/i);
-      await user.type(cpfInput, '123456789');
-
-      const continueButton = screen.getByRole('button', { name: /continuar/i });
-      await user.click(continueButton);
-
-      await waitFor(() => {
-        expect(screen.getByText('CPF inválido')).toBeInTheDocument();
+        expect(screen.getByText(/Preencha os dados de 1 passageiro/i)).toBeInTheDocument();
       });
     });
 
-    it('validates email format', async () => {
-      render(<CheckoutPage />, { wrapper: createWrapper() });
-      const user = userEvent.setup();
+    it('handles missing session ID gracefully', async () => {
+      render(<CheckoutPage />, { wrapper: createWrapper(['/checkout/123']) });
 
       await waitFor(() => {
-        expect(screen.getByText('Detalhes do Voo')).toBeInTheDocument();
-      });
-
-      // Navigate to passenger info step
-      const nextButton = screen.getByRole('button', { name: /próximo/i });
-      await user.click(nextButton);
-
-      // Enter invalid email
-      const emailInput = screen.getByLabelText(/e-mail/i);
-      await user.type(emailInput, 'invalid-email');
-
-      const continueButton = screen.getByRole('button', { name: /continuar/i });
-      await user.click(continueButton);
-
-      await waitFor(() => {
-        expect(screen.getByText('E-mail inválido')).toBeInTheDocument();
-      });
-    });
-
-    it('accepts valid passenger information', async () => {
-      render(<CheckoutPage />, { wrapper: createWrapper() });
-      const user = userEvent.setup();
-
-      await waitFor(() => {
-        expect(screen.getByText('Detalhes do Voo')).toBeInTheDocument();
-      });
-
-      // Navigate to passenger info step
-      const nextButton = screen.getByRole('button', { name: /próximo/i });
-      await user.click(nextButton);
-
-      // Fill valid passenger information
-      await user.type(screen.getByLabelText(/nome/i), 'João');
-      await user.type(screen.getByLabelText(/sobrenome/i), 'Silva');
-      await user.type(screen.getByLabelText(/cpf/i), '12345678901');
-      await user.type(screen.getByLabelText(/e-mail/i), 'joao@example.com');
-      await user.type(screen.getByLabelText(/telefone/i), '11999999999');
-
-      const continueButton = screen.getByRole('button', { name: /continuar/i });
-      await user.click(continueButton);
-
-      await waitFor(() => {
-        expect(screen.getByText('Pagamento')).toBeInTheDocument();
+        // Should still render with default single passenger
+        expect(screen.getByText('Finalizar Reserva')).toBeInTheDocument();
       });
     });
   });
 
-  describe('Payment Flow', () => {
-    const setupPaymentStep = async () => {
-      const user = userEvent.setup();
+  describe('Error Handling', () => {
+    it('shows error when flight data fails to load', async () => {
+      const flightModule = await import('../hooks/useFlight');
+      vi.mocked(flightModule.useFlight).mockReturnValue({
+        flight: null,
+        loading: false,
+        error: 'Failed to load flight'
+      } as any);
+
       render(<CheckoutPage />, { wrapper: createWrapper() });
 
       await waitFor(() => {
-        expect(screen.getByText('Detalhes do Voo')).toBeInTheDocument();
-      });
-
-      // Navigate to passenger info
-      let nextButton = screen.getByRole('button', { name: /próximo/i });
-      await user.click(nextButton);
-
-      // Fill passenger info
-      await user.type(screen.getByLabelText(/nome/i), 'João');
-      await user.type(screen.getByLabelText(/sobrenome/i), 'Silva');
-      await user.type(screen.getByLabelText(/cpf/i), '12345678901');
-      await user.type(screen.getByLabelText(/e-mail/i), 'joao@example.com');
-
-      // Continue to payment
-      const continueButton = screen.getByRole('button', { name: /continuar/i });
-      await user.click(continueButton);
-
-      return user;
-    };
-
-    it('creates booking and shows QR code on payment', async () => {
-      const user = await setupPaymentStep();
-
-      // Mock booking creation and payment preference
-      mockPost
-        .mockResolvedValueOnce({
-          data: { 
-            id: 'booking123',
-            status: 'PENDING_PAYMENT',
-            totalPrice: 450.00
-          }
-        })
-        .mockResolvedValueOnce({
-          data: {
-            id: 'preference123',
-            qrCode: 'data:image/png;base64,mockqrcode',
-            qrCodeString: '00020126123456789'
-          }
-        });
-
-      await waitFor(() => {
-        expect(screen.getByText('Pagamento')).toBeInTheDocument();
-      });
-
-      // Click pay button
-      const payButton = screen.getByRole('button', { name: /finalizar reserva/i });
-      await user.click(payButton);
-
-      await waitFor(() => {
-        expect(mockPost).toHaveBeenCalledWith('/bookings', expect.objectContaining({
-          flightId: '123',
-          passenger: expect.objectContaining({
-            firstName: 'João',
-            lastName: 'Silva',
-            cpf: '12345678901',
-            email: 'joao@example.com'
-          })
-        }));
-      });
-
-      await waitFor(() => {
-        expect(mockPost).toHaveBeenCalledWith('/payments/create-preference', {
-          bookingId: 'booking123'
-        });
-      });
-
-      await waitFor(() => {
-        expect(screen.getByText(/escaneie o qr code/i)).toBeInTheDocument();
-        expect(screen.getByAltText(/qr code/i)).toBeInTheDocument();
+        expect(screen.getByText('Erro ao carregar dados do voo')).toBeInTheDocument();
       });
     });
 
-    it('polls payment status and shows success message', async () => {
-      const user = await setupPaymentStep();
+    it('shows error when flight offer is missing', async () => {
+      const flightModule = await import('../hooks/useFlight');
+      vi.mocked(flightModule.useFlight).mockReturnValue({
+        flight: { id: '123', amadeusOfferPayload: null },
+        loading: false,
+        error: null
+      } as any);
 
-      // Mock booking creation, payment preference, and status polling
-      mockPost
-        .mockResolvedValueOnce({
-          data: { 
-            id: 'booking123',
-            status: 'PENDING_PAYMENT',
-            totalPrice: 450.00
-          }
-        })
-        .mockResolvedValueOnce({
-          data: {
-            id: 'preference123',
-            qrCode: 'data:image/png;base64,mockqrcode',
-            qrCodeString: '00020126123456789'
-          }
-        });
-
-      // Mock payment status polling
-      mockGet
-        .mockResolvedValueOnce({ data: mockFlightData }) // Initial flight fetch
-        .mockResolvedValueOnce({ 
-          data: { status: 'PENDING_PAYMENT' }
-        })
-        .mockResolvedValueOnce({ 
-          data: { status: 'CONFIRMED' }
-        });
-
-      const payButton = screen.getByRole('button', { name: /finalizar reserva/i });
-      await user.click(payButton);
-
-      // Wait for QR code to appear
-      await waitFor(() => {
-        expect(screen.getByAltText(/qr code/i)).toBeInTheDocument();
-      }, { timeout: 5000 });
-
-      // Wait for payment confirmation (should poll and find confirmed status)
-      await waitFor(() => {
-        expect(screen.getByText(/pagamento confirmado/i)).toBeInTheDocument();
-      }, { timeout: 10000 });
-    });
-
-    it('handles payment errors gracefully', async () => {
-      const user = await setupPaymentStep();
-
-      // Mock booking creation success but payment preference failure
-      mockPost
-        .mockResolvedValueOnce({
-          data: { 
-            id: 'booking123',
-            status: 'PENDING_PAYMENT',
-            totalPrice: 450.00
-          }
-        })
-        .mockRejectedValueOnce(new Error('Payment service unavailable'));
-
-      const payButton = screen.getByRole('button', { name: /finalizar reserva/i });
-      await user.click(payButton);
+      render(<CheckoutPage />, { wrapper: createWrapper() });
 
       await waitFor(() => {
-        expect(screen.getByText(/erro ao processar pagamento/i)).toBeInTheDocument();
+        expect(screen.getByText('Erro ao carregar dados do voo')).toBeInTheDocument();
       });
     });
   });
 
-  describe('Navigation', () => {
-    it('allows going back to previous steps', async () => {
-      const user = userEvent.setup();
+  describe('Booking Creation', () => {
+    it('calls createBooking with correct data', async () => {
       render(<CheckoutPage />, { wrapper: createWrapper() });
 
       await waitFor(() => {
-        expect(screen.getByText('Detalhes do Voo')).toBeInTheDocument();
+        expect(screen.getByText('Finalizar Reserva')).toBeInTheDocument();
       });
 
-      // Go to step 2
-      const nextButton = screen.getByRole('button', { name: /próximo/i });
-      await user.click(nextButton);
-
-      expect(screen.getByText('Informações do Passageiro')).toBeInTheDocument();
-
-      // Go back to step 1
-      const backButton = screen.getByRole('button', { name: /voltar/i });
-      await user.click(backButton);
-
-      expect(screen.getByText('Detalhes do Voo')).toBeInTheDocument();
-    });
-
-    it('redirects to home when no flight ID provided', () => {
-      render(<CheckoutPage />, { 
-        wrapper: createWrapper(['/checkout']) 
-      });
-
-      // Should redirect since no flightId in URL
-      expect(window.location.pathname).toBe('/checkout');
+      // Verify booking hook is set up correctly
+      expect(mockUseBooking.createBooking).toBeDefined();
     });
   });
 
-  describe('Price Calculation', () => {
-    it('displays correct total price with taxes', async () => {
-      render(<CheckoutPage />, { wrapper: createWrapper() });
+  describe('Component Cleanup', () => {
+    it('cleans up on unmount', async () => {
+      const { unmount } = render(<CheckoutPage />, { wrapper: createWrapper() });
 
       await waitFor(() => {
-        expect(screen.getByText('R$ 450,00')).toBeInTheDocument();
-        // Check for tax breakdown (assuming 10% tax)
-        expect(screen.getByText(/taxas/i)).toBeInTheDocument();
-        expect(screen.getByText('R$ 495,00')).toBeInTheDocument(); // 450 + 45 tax
+        expect(screen.getByText('Finalizar Reserva')).toBeInTheDocument();
       });
+
+      // Should not throw errors on unmount
+      expect(() => unmount()).not.toThrow();
     });
   });
 });

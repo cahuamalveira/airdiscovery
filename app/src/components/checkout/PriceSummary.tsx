@@ -13,6 +13,7 @@ import { AmadeusFlightOffer } from '@/hooks/useFlightSearch';
 interface PriceSummaryProps {
   flightOffer: AmadeusFlightOffer;
   loading?: boolean;
+  passengerCount?: number;
 }
 
 /**
@@ -20,11 +21,17 @@ interface PriceSummaryProps {
  */
 export const PriceSummary: React.FC<PriceSummaryProps> = ({ 
   flightOffer, 
-  loading = false 
+  loading = false,
+  passengerCount = 1
 }) => {
-  const basePrice = parseFloat(flightOffer.price.base);
-  const totalPrice = parseFloat(flightOffer.price.grandTotal);
-  const taxes = totalPrice - basePrice;
+  const basePricePerPassenger = parseFloat(flightOffer.price.base);
+  const totalPricePerPassenger = parseFloat(flightOffer.price.grandTotal);
+  const taxesPerPassenger = totalPricePerPassenger - basePricePerPassenger;
+  
+  // Multiply by passenger count
+  const basePrice = basePricePerPassenger * passengerCount;
+  const totalPrice = totalPricePerPassenger * passengerCount;
+  const taxes = taxesPerPassenger * passengerCount;
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('pt-BR', {
@@ -50,10 +57,16 @@ export const PriceSummary: React.FC<PriceSummaryProps> = ({
           Resumo do Pagamento
         </Typography>
         
+        {passengerCount > 1 && (
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+            {passengerCount} passageiro{passengerCount > 1 ? 's' : ''}
+          </Typography>
+        )}
+        
         <Stack spacing={2}>
           <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
             <Typography variant="body2" color="text.secondary">
-              Tarifa Básica
+              Tarifa Básica {passengerCount > 1 ? `(${passengerCount}x ${formatCurrency(basePricePerPassenger)})` : ''}
             </Typography>
             <Typography variant="body2">
               {formatCurrency(basePrice)}
