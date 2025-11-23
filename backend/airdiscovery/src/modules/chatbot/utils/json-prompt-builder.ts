@@ -35,7 +35,7 @@ Apenas ADICIONE ou ATUALIZE novos dados baseados na mensagem do usuário.
     "budget_in_brl": number | null,
     "passenger_composition": {
       "adults": number,
-      "children": [{"age": number, "isPaying": boolean}] | null
+      "children": number | null
     } | null,
     "availability_months": string[] | null,
     "purpose": string | null,
@@ -69,10 +69,9 @@ Apenas ADICIONE ou ATUALIZE novos dados baseados na mensagem do usuário.
    - Pergunte adultos COM BOTÕES: [{"label":"1 adulto","value":"1"},{"label":"2 adultos","value":"2"},{"label":"3 adultos","value":"3"},{"label":"4 adultos","value":"4"}]
    - Salve em passenger_composition.adults
    - MANTENHA "collecting_passengers"
-   - Pergunte crianças COM BOTÕES: [{"label":"Nenhuma","value":"0"},{"label":"1 criança","value":"1"},{"label":"2 crianças","value":"2"}]
-   - Se 0 crianças: MUDE para "collecting_availability"
-   - Se >0 crianças: Pergunte idade COM BOTÕES: [{"label":"0-2 anos","value":"1"},{"label":"3-5 anos","value":"4"},{"label":"6-11 anos","value":"8"},{"label":"12-17 anos","value":"14"}]
-   - Após última idade: MUDE para "collecting_availability"
+   - Pergunte crianças COM BOTÕES: [{"label":"Nenhuma","value":"0"},{"label":"1 criança","value":"1"},{"label":"2 crianças","value":"2"},{"label":"3 crianças","value":"3"}]
+   - Salve número em passenger_composition.children (0 se nenhuma)
+   - MUDE para "collecting_availability"
 
 4. **collecting_availability**: Pergunte mês → Salve availability_months → MUDE para "collecting_activities" (SEM button_options)
 
@@ -84,12 +83,11 @@ Apenas ADICIONE ou ATUALIZE novos dados baseados na mensagem do usuário.
 Use estas diretrizes ao fazer recomendações:
 
 **Cálculo de Orçamento por Pessoa:**
-- SEMPRE calcule o orçamento por passageiro pagante
-- Passageiros pagantes = adultos + crianças com idade > 2 anos
-- Bebês (0-2 anos) NÃO contam como passageiros pagantes
-- Orçamento por pessoa = budget_in_brl / número de passageiros pagantes
-- Exemplo: R$ 6.000 para 2 adultos + 1 criança (5 anos) = R$ 2.000 por pessoa
-- Exemplo: R$ 4.000 para 1 adulto + 1 bebê (1 ano) = R$ 4.000 por pessoa (bebê não paga)
+- SEMPRE calcule o orçamento por passageiro
+- Total de passageiros = adults + children
+- Orçamento por pessoa = budget_in_brl / total de passageiros
+- Exemplo: R$ 6.000 para 2 adultos + 1 criança = R$ 2.000 por pessoa
+- Exemplo: R$ 4.000 para 1 adulto = R$ 4.000 por pessoa
 
 **Duração Sugerida da Viagem (baseada no orçamento POR PESSOA):**
 - Orçamento/pessoa >= R$ 5.000: sugira viagens de 7-10 dias
@@ -205,10 +203,10 @@ Se não conseguir identificar informações:
 {"conversation_stage":"collecting_passengers","data_collected":{"origin_name":"Rio de Janeiro","origin_iata":"GIG","destination_name":null,"destination_iata":null,"activities":null,"budget_in_brl":5000,"passenger_composition":null,"availability_months":null,"purpose":null,"hobbies":null},"next_question_key":"passengers","assistant_message":"Quantos adultos?","is_final_recommendation":false,"button_options":[{"label":"1 adulto","value":"1"},{"label":"2 adultos","value":"2"},{"label":"3 adultos","value":"3"},{"label":"4 adultos","value":"4"}]}
 
 3. Clica "2 adultos" (PRESERVA origin e budget)
-{"conversation_stage":"collecting_passengers","data_collected":{"origin_name":"Rio de Janeiro","origin_iata":"GIG","destination_name":null,"destination_iata":null,"activities":null,"budget_in_brl":5000,"passenger_composition":{"adults":2,"children":null},"availability_months":null,"purpose":null,"hobbies":null},"next_question_key":"passengers","assistant_message":"E quantas crianças?","is_final_recommendation":false,"button_options":[{"label":"Nenhuma","value":"0"},{"label":"1 criança","value":"1"},{"label":"2 crianças","value":"2"}]}
+{"conversation_stage":"collecting_passengers","data_collected":{"origin_name":"Rio de Janeiro","origin_iata":"GIG","destination_name":null,"destination_iata":null,"activities":null,"budget_in_brl":5000,"passenger_composition":{"adults":2,"children":null},"availability_months":null,"purpose":null,"hobbies":null},"next_question_key":"passengers","assistant_message":"E quantas crianças?","is_final_recommendation":false,"button_options":[{"label":"Nenhuma","value":"0"},{"label":"1 criança","value":"1"},{"label":"2 crianças","value":"2"},{"label":"3 crianças","value":"3"}]}
 
-4. Clica "Nenhuma" (PRESERVA tudo anterior)
-{"conversation_stage":"collecting_availability","data_collected":{"origin_name":"Rio de Janeiro","origin_iata":"GIG","destination_name":null,"destination_iata":null,"activities":null,"budget_in_brl":5000,"passenger_composition":{"adults":2,"children":null},"availability_months":null,"purpose":null,"hobbies":null},"next_question_key":"availability","assistant_message":"Em qual mês você tem disponibilidade?","is_final_recommendation":false}`;
+4. Clica "1 criança" (PRESERVA tudo anterior)
+{"conversation_stage":"collecting_availability","data_collected":{"origin_name":"Rio de Janeiro","origin_iata":"GIG","destination_name":null,"destination_iata":null,"activities":null,"budget_in_brl":5000,"passenger_composition":{"adults":2,"children":1},"availability_months":null,"purpose":null,"hobbies":null},"next_question_key":"availability","assistant_message":"Em qual mês você tem disponibilidade?","is_final_recommendation":false}`;
 
   /**
    * Constrói o prompt completo para o LLM

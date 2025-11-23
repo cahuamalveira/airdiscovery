@@ -69,11 +69,23 @@ export class ChatSessionRepository {
           session.profileData.hobbies.filter(item => item !== undefined && item !== null && item !== '') : []
       };
 
+      // Sanitize passenger composition if present
+      const sanitizedPassengerComposition = session.passengerComposition ? {
+        adults: Number(session.passengerComposition.adults || 1),
+        children: session.passengerComposition.children !== null && session.passengerComposition.children !== undefined ? 
+          Number(session.passengerComposition.children) : null
+      } : undefined;
+
+      if (sanitizedPassengerComposition) {
+        this.logger.debug(`Saving passenger composition for session ${session.sessionId}:`, JSON.stringify(sanitizedPassengerComposition));
+      }
+
       const item = {
         SessionId: String(session.sessionId),
         UserId: String(session.userId),
         Messages: sanitizedMessages,
         ProfileData: sanitizedProfileData,
+        PassengerComposition: sanitizedPassengerComposition,
         CurrentQuestionIndex: Number(session.currentQuestionIndex || 0),
         InterviewComplete: Boolean(session.interviewComplete || false),
         ReadyForRecommendation: Boolean(session.readyForRecommendation || false),
@@ -381,11 +393,23 @@ export class ChatSessionRepository {
       hobbies: Array.isArray(item.ProfileData.hobbies) ? item.ProfileData.hobbies : []
     } : defaultProfile;
 
+    // Map passenger composition if present
+    const passengerComposition = item.PassengerComposition ? {
+      adults: Number(item.PassengerComposition.adults || 1),
+      children: item.PassengerComposition.children !== null && item.PassengerComposition.children !== undefined ? 
+        Number(item.PassengerComposition.children) : null
+    } : undefined;
+
+    if (passengerComposition) {
+      this.logger.debug(`Loaded passenger composition for session ${item.SessionId}:`, JSON.stringify(passengerComposition));
+    }
+
     return {
       sessionId: item.SessionId,
       userId: item.UserId,
       messages: messages,
       profileData,
+      passengerComposition,
       currentQuestionIndex: item.CurrentQuestionIndex || 0,
       interviewComplete: item.InterviewComplete || false,
       readyForRecommendation: item.ReadyForRecommendation || false,

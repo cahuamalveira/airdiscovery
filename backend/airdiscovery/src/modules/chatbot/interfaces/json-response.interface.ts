@@ -24,19 +24,11 @@ export type NextQuestionKey =
   | null;
 
 /**
- * Interface para representar um passageiro criança
- */
-export interface ChildPassenger {
-  readonly age: number;
-  readonly isPaying: boolean; // true se idade > 2 anos
-}
-
-/**
- * Interface para composição de passageiros
+ * Interface para composição de passageiros (simplificada)
  */
 export interface PassengerComposition {
   readonly adults: number;
-  readonly children: readonly ChildPassenger[] | null;
+  readonly children: number | null;
 }
 
 /**

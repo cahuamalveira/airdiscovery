@@ -55,6 +55,10 @@ export interface ChatSession {
   questionsAsked: number;
   totalQuestionsAvailable: number;
   interviewEfficiency: number;
+  passengerComposition?: {
+    adults: number;
+    children: number | null;
+  };
 }
 
 export interface ChatMessage {
