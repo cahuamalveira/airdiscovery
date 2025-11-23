@@ -1,10 +1,10 @@
-import { Injectable, Inject, Logger, BadRequestException, InternalServerErrorException } from '@nestjs/common';
+import { Injectable, Inject, BadRequestException, InternalServerErrorException, NotFoundException, ForbiddenException, ConflictException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import Stripe from 'stripe';
 import { BookingService } from '../bookings/booking.service';
 import { Payment as PaymentEntity } from '../bookings/entities/payment.entity';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, Not, IsNull } from 'typeorm';
 import { MailService } from '../mail/mail.service';
 import { BookingStatus } from '../bookings/entities/booking.entity';
 import { CreatePaymentIntentDto } from './dto/stripe.dto';
@@ -47,64 +47,149 @@ export class StripeService {
 
   /**
    * Criar Payment Intent para processamento de pagamento
+   * 
+   * SECURITY MODEL (Requirements 1, 2, 3, 4, 5, 6):
+   * - Amount is NEVER accepted from client - retrieved from booking entity
+   * - User ownership is validated before processing
+   * - Booking status and duplicate payments are checked
+   * - All operations are logged for audit trail
+   * 
+   * @param bookingId - UUID of the booking
+   * @param userId - User ID from JWT token for ownership validation
+   * @returns Payment intent client secret and calculated amount
    */
   async createPaymentIntent(
-    createPaymentIntentDto: CreatePaymentIntentDto
+    bookingId: string,
+    userId: string
   ): Promise<PaymentIntentResponse> {
-    const startTime = Date.now();
-
     this.logger.info('Creating payment intent', {
-      bookingId: createPaymentIntentDto.bookingId,
-      amount: createPaymentIntentDto.amount,
-      currency: createPaymentIntentDto.currency || 'brl',
+      bookingId,
+      userId,
       function: 'createPaymentIntent',
     });
 
     try {
-      // Buscar dados da reserva
-      const booking = await this.bookingService.findById(createPaymentIntentDto.bookingId);
-
-      // Validar se a reserva pode receber pagamento
-      if (booking.status !== BookingStatus.AWAITING_PAYMENT && booking.status !== BookingStatus.PENDING) {
-        throw new BadRequestException(
-          `Reserva não pode receber pagamento. Status atual: ${booking.status}`
-        );
+      // Requirement 2.1: Fetch booking and validate ownership
+      const bookingDto = await this.bookingService.findById(bookingId, userId);
+      
+      if (!bookingDto) {
+        this.logger.warn('Booking not found or unauthorized', {
+          bookingId,
+          userId,
+        });
+        throw new NotFoundException('Booking not found');
       }
 
-      const passenger = booking.passengers[0]; // Usar o primeiro passageiro como pagador
+      // Requirement 2.2: Validate user owns booking (already validated by findById with userId)
+      // The findById method with userId parameter ensures only the owner's booking is returned
 
-      // Criar Payment Intent no Stripe
+      // Requirement 3.1: Validate booking status is PENDING or AWAITING_PAYMENT (for retries)
+      if (bookingDto.status !== BookingStatus.PENDING && bookingDto.status !== BookingStatus.AWAITING_PAYMENT) {
+        this.logger.warn('Invalid booking status', {
+          bookingId,
+          status: bookingDto.status,
+        });
+        throw new BadRequestException(`Booking status must be PENDING or AWAITING_PAYMENT. Current status: ${bookingDto.status}`);
+      }
+
+      // Requirement 3.3: Check for successful payment (prevent duplicate successful payments)
+      const existingSuccessfulPayment = await this.paymentRepository.findOne({
+        where: { 
+          bookingId, 
+          paymentIntentId: Not(IsNull()),
+          status: 'succeeded' // Only block if payment already succeeded
+        },
+      });
+
+      if (existingSuccessfulPayment?.paymentIntentId) {
+        this.logger.warn('Payment already completed', {
+          bookingId,
+          existingPaymentIntentId: existingSuccessfulPayment.paymentIntentId,
+        });
+        throw new ConflictException('Payment already completed for this booking');
+      }
+
+      // Check for existing pending payment intent and reuse it if possible
+      const existingPendingPayment = await this.paymentRepository.findOne({
+        where: { 
+          bookingId, 
+          paymentIntentId: Not(IsNull()),
+          status: 'pending'
+        },
+      });
+
+      // If there's a pending payment, retrieve and return the existing payment intent
+      if (existingPendingPayment?.paymentIntentId) {
+        this.logger.info('Reusing existing payment intent', {
+          bookingId,
+          paymentIntentId: existingPendingPayment.paymentIntentId,
+        });
+
+        try {
+          const existingPaymentIntent = await this.stripe.paymentIntents.retrieve(
+            existingPendingPayment.paymentIntentId
+          );
+
+          // Only reuse if the payment intent is still usable
+          if (existingPaymentIntent.status === 'requires_payment_method' || 
+              existingPaymentIntent.status === 'requires_confirmation') {
+            return {
+              id: existingPaymentIntent.id,
+              clientSecret: existingPaymentIntent.client_secret!,
+              status: existingPaymentIntent.status,
+              amount: existingPendingPayment.amount,
+              currency: 'brl',
+            };
+          }
+        } catch (error) {
+          // If retrieval fails, continue to create a new payment intent
+          this.logger.warn('Failed to retrieve existing payment intent, creating new one', {
+            bookingId,
+            error: error.message,
+          });
+        }
+      }
+
+      // Requirement 4.1, 4.2: Validate totalAmount > 0
+      if (bookingDto.totalAmount <= 0) {
+        this.logger.error('Invalid booking amount', new Error('Amount must be positive'), {
+          bookingId,
+          totalAmount: bookingDto.totalAmount,
+        });
+        throw new BadRequestException('Invalid booking amount');
+      }
+
+      // Requirement 4.3, 4.4: Validate passengers exist
+      if (!bookingDto.passengers || bookingDto.passengers.length === 0) {
+        this.logger.error('No passengers in booking', new Error('Passengers required'), {
+          bookingId,
+        });
+        throw new BadRequestException('No passengers in booking');
+      }
+
+      // Requirement 1.1, 1.5: Use booking.totalAmount as authoritative source
+      const amount = bookingDto.totalAmount;
+
+      // Requirement 4.5: Convert to cents (smallest currency unit)
+      const amountInCents = Math.round(amount * 100);
+
+      // Requirement 6.3: Create Stripe Payment Intent with metadata for audit
       const paymentIntent = await this.stripe.paymentIntents.create({
-        amount: createPaymentIntentDto.amount, // Valor em centavos
-        currency: createPaymentIntentDto.currency || 'brl',
-        description: createPaymentIntentDto.description || `Passagem aérea - ${passenger.firstName} ${passenger.lastName}`,
+        amount: amountInCents,
+        currency: 'brl',
         metadata: {
-          bookingId: createPaymentIntentDto.bookingId,
-          flightId: booking.flightId,
-          passengerName: `${passenger.firstName} ${passenger.lastName}`,
-          passengerEmail: passenger.email,
-        },
-        automatic_payment_methods: {
-          enabled: true,
+          bookingId,
+          userId,
+          passengerCount: bookingDto.passengers.length,
         },
       });
 
-      const responseTime = Date.now() - startTime;
-
-      this.logger.info('Stripe payment intent created', {
-        paymentIntentId: paymentIntent.id,
-        bookingId: createPaymentIntentDto.bookingId,
-        amount: paymentIntent.amount,
-        status: paymentIntent.status,
-        responseTime,
-      });
-
-      // Salvar referência do Payment Intent no banco
+      // Requirement 3.5: Store payment intent ID in payment entity
       const paymentEntity = this.paymentRepository.create({
-        bookingId: createPaymentIntentDto.bookingId,
+        bookingId,
         paymentIntentId: paymentIntent.id,
-        amount: createPaymentIntentDto.amount / 100, // Converter de centavos para reais
-        currency: createPaymentIntentDto.currency || 'brl',
+        amount,
+        currency: 'brl',
         status: 'pending',
         provider: 'stripe',
         createdAt: new Date(),
@@ -112,31 +197,46 @@ export class StripeService {
 
       await this.paymentRepository.save(paymentEntity);
 
-      this.logger.debug('Payment entity saved to database', {
+      // Requirement 3.4: Update booking status to AWAITING_PAYMENT (only if currently PENDING)
+      if (bookingDto.status === BookingStatus.PENDING) {
+        await this.bookingService.update(bookingId, {
+          status: BookingStatus.AWAITING_PAYMENT,
+        });
+      }
+
+      // Requirement 6.1: Log successful payment intent creation
+      this.logger.info('Payment intent created', {
+        bookingId,
+        userId,
+        totalAmount: amount,
+        passengerCount: bookingDto.passengers.length,
         paymentIntentId: paymentIntent.id,
-        bookingId: createPaymentIntentDto.bookingId,
       });
 
+      // Requirement 5.3: Return client secret and amount for display
       return {
         id: paymentIntent.id,
         clientSecret: paymentIntent.client_secret!,
         status: paymentIntent.status,
-        amount: paymentIntent.amount,
-        currency: paymentIntent.currency,
+        amount,
+        currency: 'brl',
       };
 
     } catch (error) {
-      const responseTime = Date.now() - startTime;
-      this.logger.error('Failed to create payment intent', error as Error, {
-        bookingId: createPaymentIntentDto.bookingId,
-        amount: createPaymentIntentDto.amount,
-        responseTime,
-        function: 'createPaymentIntent',
-      });
-      if (error instanceof BadRequestException) {
+      // Requirement 6.2: Log all validation failures
+      if (error instanceof NotFoundException || 
+          error instanceof ForbiddenException ||
+          error instanceof BadRequestException ||
+          error instanceof ConflictException) {
         throw error;
       }
-      throw new InternalServerErrorException('Erro interno do servidor ao criar Payment Intent');
+
+      this.logger.error('Failed to create payment intent', error as Error, {
+        bookingId,
+        userId,
+        function: 'createPaymentIntent',
+      });
+      throw new InternalServerErrorException('Failed to create payment intent');
     }
   }
 

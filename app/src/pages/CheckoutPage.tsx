@@ -354,7 +354,7 @@ const CheckoutPage: React.FC = () => {
             <PaymentSection
               onBack={handleBack}
               bookingId={bookingData.id}
-              amount={parseFloat(flightOffer.price.total)}
+              amount={bookingData.totalAmount}
               description={`Voo ${flightOffer.itineraries[0].segments[0].departure.iataCode} → ${flightOffer.itineraries[0].segments[flightOffer.itineraries[0].segments.length - 1].arrival.iataCode}`}
               paymentStatus={paymentStatus}
               onPaymentSuccess={handleNext}
@@ -364,7 +364,7 @@ const CheckoutPage: React.FC = () => {
             />
           )}
 
-          {activeStep === 3 && (
+          {activeStep === 3 && bookingData && (
             <Card elevation={2}>
               <CardContent sx={{ textAlign: 'center' }}>
                 <CheckCircleIcon color="success" sx={{ fontSize: 64, mb: 2 }} />
@@ -377,7 +377,7 @@ const CheckoutPage: React.FC = () => {
                 <Button
                   variant="contained"
                   size="large"
-                  onClick={handleNext}
+                  onClick={() => navigate(`/minhas-reservas/${bookingData.id}`)}
                 >
                   Ver Detalhes da Reserva
                 </Button>

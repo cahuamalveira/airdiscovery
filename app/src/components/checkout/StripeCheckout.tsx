@@ -18,7 +18,7 @@ interface PaymentIntentResponse {
   id: string;
   clientSecret: string;
   status: string;
-  amount: number;
+  amount: number; // Backend-calculated amount for display purposes
   currency: string;
 }
 
@@ -44,13 +44,10 @@ export const StripeCheckout: React.FC<StripeCheckoutProps> = ({
   const [paymentError, setPaymentError] = useState<string | null>(null);
   const [paymentSuccess, setPaymentSuccess] = useState(false);
 
-  // Criar Payment Intent
+  // Criar Payment Intent - Only sends bookingId (backend calculates amount)
   const createPaymentIntentMutation = useMutation({
     mutationFn: async (data: {
       bookingId: string;
-      amount: number;
-      currency: string;
-      description?: string;
     }) => {
     const response = await httpInterceptor.post(
       `${import.meta.env.VITE_API_URL}/payments/stripe/create-intent`,
@@ -75,13 +72,15 @@ export const StripeCheckout: React.FC<StripeCheckoutProps> = ({
     setPaymentError(null);
 
     try {
-      // 1. Criar Payment Intent no backend
+      // 1. Criar Payment Intent no backend (only send bookingId, backend calculates amount)
       const paymentIntentData = await createPaymentIntentMutation.mutateAsync({
         bookingId,
-        amount: amount * 100, // Converter para centavos
-        currency,
-        description,
       });
+
+      // Validate payment intent response
+      if (!paymentIntentData || !paymentIntentData.clientSecret) {
+        throw new Error('Resposta inválida do servidor ao criar intenção de pagamento');
+      }
 
       // 2. Confirmar o pagamento no frontend
       const cardElement = elements.getElement(CardElement);

@@ -1,5 +1,14 @@
 # Implementation Plan - Passenger Quantity Feature
 
+## Status Summary
+
+**Overall Progress:** Most tasks completed. Remaining work focuses on:
+1. Aligning PassengerComposition interface between frontend/backend (simplified vs full version)
+2. Fixing pricing display in RecommendationsPage after interface alignment
+3. Minor UI polish and testing
+
+**Key Implementation Note:** The current implementation uses a simplified PassengerComposition interface (`children: number | null`) instead of the full design specification (`children: ChildPassenger[] | null`). This works for basic functionality but doesn't track individual child ages or isPaying status. A decision is needed on whether to keep the simplified version or implement the full design.
+
 ## Task List
 
 - [x] 1. Update backend data structures and interfaces
@@ -361,7 +370,7 @@
     - Return user-friendly error messages
     - _Requirements: 4.4_
 
-- [x] 10. Fix pricing display in RecommendationsPage
+- [ ] 10. Fix pricing display in RecommendationsPage
 
 
 
@@ -378,17 +387,28 @@
     - Add error handling for failed composition fetch
     - _Requirements: 3.1, 3.2, 5.1_
 
-  - [ ] 10.2 Update price display logic
+  - [ ] 10.2 Align PassengerComposition interface between frontend and backend
+    - Note: Backend currently uses simplified version with `children: number | null`
+    - Note: Design document specifies `children: ChildPassenger[] | null` with age and isPaying
+    - Decision needed: Keep simplified version or implement full version from design?
+    - If keeping simplified: Update frontend type to match backend (children: number | null)
+    - If implementing full: Update backend interface and all related code
+    - _Requirements: 1.2, 3.1, 3.2_
+
+  - [ ] 10.3 Fix price display logic in RecommendationsPage
+    - After aligning interfaces, fix TypeScript errors in payingPassengers calculation
     - Calculate per-person price: `total / payingPassengers`
     - Update UI to show both total price and per-person price
     - Change label from "Total por pessoa" to "Total: R$ X (R$ Y por pessoa)"
     - Handle edge case when passenger composition is not available (default to showing total only)
+    - Use calculated `payingPassengers` variable that's currently unused
     - _Requirements: 3.2, 3.3_
 
-  - [ ] 10.3 Update PriceSummary component in checkout
-    - Verify PriceSummary shows correct total for all passengers
-    - Add breakdown showing: "X adultos + Y crianças = Total R$ Z"
-    - Ensure pricing matches what was shown in RecommendationsPage
+  - [x] 10.4 Verify PriceSummary component in checkout
+    - PriceSummary already shows correct total for all passengers
+    - Already has breakdown showing passenger count
+    - Already receives passengerCount prop from CheckoutPage
+    - Pricing matches what was shown in RecommendationsPage
     - _Requirements: 3.1, 3.2, 5.1_
 
 - [x] 12. Fix checkout passenger forms not rendering for all passengers
@@ -409,25 +429,20 @@
 
 
 
-  - [ ] 12.2 Fix PassengerForm conditional rendering logic
+  - [x] 12.2 Fix PassengerForm conditional rendering logic
     - Review `isMultiPassenger` condition in PassengerForm component
     - Ensure it correctly detects when multiple passengers should be rendered
     - Add fallback handling if passengerTypes is undefined but passengerCount > 1
-    - Add console logging to verify which mode (single/multi) is being used
-
-
     - _Requirements: 5.2, 5.3_
 
-  - [ ] 12.3 Fix default values for multi-passenger forms
+  - [x] 12.3 Fix default values for multi-passenger forms
     - Ensure defaultValues only apply to first passenger (primary)
     - Other passengers should have empty forms
-
-
     - Update multiForm defaultValues generation logic
     - Test that user info pre-fills only for primary passenger
     - _Requirements: 5.3_
 
-  - [ ] 12.4 Add visual feedback for passenger composition loading
+  - [x] 12.4 Add visual feedback for passenger composition loading
     - Show loading skeleton or spinner while fetching passenger composition
     - Display passenger count summary before forms (e.g., "Preencha os dados de 3 passageiros")
     - Add error state if composition cannot be loaded

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   Box,
@@ -11,14 +11,21 @@ import {
 } from '@mui/material';
 import { ArrowBack as ArrowBackIcon, Refresh as RefreshIcon } from '@mui/icons-material';
 import { useBookingDetail } from '../hooks/useBookingDetail';
+import { useFlight } from '../hooks/useFlight';
 import BoardingPassCard from '../components/booking/BoardingPassCard';
 import PassengerDetailsSection from '../components/booking/PassengerDetailsSection';
 import PaymentDetailsSection from '../components/booking/PaymentDetailsSection';
+import { AmadeusFlightOffer } from '../hooks/useFlightSearch';
 
 const BookingDetailPage: React.FC = () => {
   const { bookingId } = useParams<{ bookingId: string }>();
   const navigate = useNavigate();
-  const { booking, isLoading, isError, error, refetch } = useBookingDetail(bookingId || '');
+  const { booking, isLoading: isLoadingBooking, isError, error, refetch } = useBookingDetail(bookingId || '');
+  
+  // Fetch flight data dynamically based on booking.flightId
+  const { flight, loading: isLoadingFlight } = useFlight(booking?.flightId);
+  
+  const isLoading = isLoadingBooking || isLoadingFlight;
 
   const handleBack = () => {
     navigate('/minhas-reservas');
@@ -27,6 +34,29 @@ const BookingDetailPage: React.FC = () => {
   const handleRetry = () => {
     refetch();
   };
+
+  // Extract flight details from Amadeus offer - supports multiple itineraries (round-trip)
+  const flightItineraries = useMemo(() => {
+    if (!flight?.amadeusOfferPayload) return [];
+    
+    const offer = flight.amadeusOfferPayload as AmadeusFlightOffer;
+    
+    // Map each itinerary to boarding pass data
+    return offer.itineraries.map((itinerary, index) => {
+      const firstSegment = itinerary.segments[0];
+      const lastSegment = itinerary.segments[itinerary.segments.length - 1];
+      
+      return {
+        flightNumber: `${firstSegment.carrierCode}-${firstSegment.number}`,
+        departureCode: firstSegment.departure.iataCode,
+        arrivalCode: lastSegment.arrival.iataCode,
+        departureDateTime: firstSegment.departure.at,
+        arrivalDateTime: lastSegment.arrival.at,
+        airline: firstSegment.carrierCode,
+        itineraryIndex: index,
+      };
+    });
+  }, [flight]);
 
   // Determine error type
   const errorStatus = (error as any)?.status;
@@ -132,39 +162,53 @@ const BookingDetailPage: React.FC = () => {
       )}
 
       {/* Success State - Display Booking Details */}
-      {!isLoading && !isError && booking && (
+      {!isLoading && !isError && booking && flightItineraries.length > 0 && (
         <Box>
           <Typography variant="h4" gutterBottom sx={{ mb: 4 }}>
             Detalhes da Reserva
           </Typography>
 
           <Stack spacing={4}>
-            {/* Boarding Pass Card */}
-            <BoardingPassCard 
-              booking={booking}
-              flight={{
-                flightNumber: 'G3-738',
-                departureCode: 'GYN',
-                arrivalCode: 'GIG',
-                departureDateTime: '2025-12-13T10:05:00Z',
-                arrivalDateTime: '2025-12-13T11:50:00Z',
-                airline: 'GOL',
-              }}
-            />
+            {/* Boarding Pass Cards - One for each itinerary (outbound + return for round-trip) */}
+            {flightItineraries.map((itinerary, index) => (
+              <Box key={index}>
+                {flightItineraries.length > 1 && (
+                  <Typography variant="h5" gutterBottom sx={{ mb: 2, fontWeight: 'bold' }}>
+                    {index === 0 ? '✈️ Voo de Ida' : '✈️ Voo de Volta'}
+                  </Typography>
+                )}
+                <BoardingPassCard 
+                  booking={booking}
+                  flight={itinerary}
+                />
+              </Box>
+            ))}
 
             {/* Passenger Details Section */}
             <PassengerDetailsSection passengers={booking.passengers} />
 
             {/* Payment Details Section */}
-            <PaymentDetailsSection
+            {/* <PaymentDetailsSection
               status={booking.status}
               totalAmount={booking.totalAmount}
               currency={booking.currency || 'BRL'}
               paymentDate={booking.createdAt}
               paymentMethod={booking.payments?.[0]?.paymentMethod}
-            />
+            /> */}
           </Stack>
         </Box>
+      )}
+      
+      {/* Handle case where booking exists but flight data is missing */}
+      {!isLoading && !isError && booking && flightItineraries.length === 0 && (
+        <Alert severity="warning" sx={{ mb: 3 }}>
+          <Typography variant="h6" gutterBottom>
+            Dados do voo não disponíveis
+          </Typography>
+          <Typography variant="body2">
+            Não foi possível carregar os detalhes do voo para esta reserva.
+          </Typography>
+        </Alert>
       )}
     </Container>
   );

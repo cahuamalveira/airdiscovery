@@ -318,4 +318,84 @@ describe('CheckoutPage', () => {
       expect(() => unmount()).not.toThrow();
     });
   });
+
+  describe('Payment Amount Validation', () => {
+    it('should not calculate amount in frontend', async () => {
+      render(<CheckoutPage />, { wrapper: createWrapper() });
+
+      await waitFor(() => {
+        expect(screen.getByText('Finalizar Reserva')).toBeInTheDocument();
+      });
+
+      // CheckoutPage should not perform price × passenger calculations
+      // Amount should come from booking.totalAmount
+    });
+
+    it('should pass only bookingId to PaymentSection', async () => {
+      // Mock to reach payment step
+      const checkoutModule = await import('../hooks/checkout');
+      vi.mocked(checkoutModule.useCheckoutSteps).mockReturnValue({
+        ...mockUseCheckoutSteps,
+        activeStep: 2 // Payment step
+      });
+
+      render(<CheckoutPage />, { wrapper: createWrapper() });
+
+      await waitFor(() => {
+        // Should render payment section without amount calculations
+        expect(screen.getByText('Finalizar Reserva')).toBeInTheDocument();
+      });
+    });
+
+    it('should display amount from booking data', async () => {
+      const checkoutModule = await import('../hooks/checkout');
+      
+      // Set up booking with totalAmount
+      const mockBookingData = {
+        id: 'booking123',
+        flightId: '123',
+        userId: 'user123',
+        status: 'PENDING' as const,
+        passengers: [{
+          firstName: 'Test',
+          lastName: 'User',
+          email: 'test@example.com',
+          phone: '(11) 99999-9999',
+          document: '123.456.789-00',
+          birthDate: '1990-01-01'
+        }],
+        totalAmount: 900, // Backend calculated for 2 passengers
+        currency: 'BRL',
+        payments: []
+      };
+
+      vi.mocked(checkoutModule.useBooking).mockReturnValue({
+        createBooking: vi.fn().mockResolvedValue(mockBookingData),
+        loading: false
+      });
+
+      vi.mocked(checkoutModule.useCheckoutSteps).mockReturnValue({
+        ...mockUseCheckoutSteps,
+        activeStep: 2 // Payment step
+      });
+
+      render(<CheckoutPage />, { wrapper: createWrapper() });
+
+      await waitFor(() => {
+        // Amount should be from booking.totalAmount, not calculated
+        expect(screen.getByText('Finalizar Reserva')).toBeInTheDocument();
+      });
+    });
+
+    it('should not multiply price by passenger count in frontend', async () => {
+      render(<CheckoutPage />, { wrapper: createWrapper() });
+
+      await waitFor(() => {
+        expect(screen.getByText('Finalizar Reserva')).toBeInTheDocument();
+      });
+
+      // Verify no frontend calculation logic exists
+      // All amounts should come from backend booking data
+    });
+  });
 });

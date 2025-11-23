@@ -45,10 +45,13 @@ const BoardingPassCard: React.FC<BoardingPassCardProps> = React.memo(({ booking,
     }).format(date);
   };
 
+  // Generate locator from booking ID (first 9 chars uppercase)
+  const locator = booking.id.substring(0, 9).toUpperCase().replace(/-/g, '');
+
   // Generate QR code data
   const qrCodeData = JSON.stringify({
     bookingId: booking.id,
-    locator: 'ABC123DEF',
+    locator: locator,
     type: 'boarding_pass',
     passengerCount: booking.passengers.length,
   });
@@ -258,7 +261,7 @@ const BoardingPassCard: React.FC<BoardingPassCardProps> = React.memo(({ booking,
                     fontSize: { xs: '1rem', sm: '1.25rem' },
                   }}
                 >
-                  ABC123DEF
+                  {locator}
                 </Typography>
               </Box>
 

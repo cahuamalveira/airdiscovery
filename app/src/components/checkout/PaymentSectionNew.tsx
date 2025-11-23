@@ -19,13 +19,17 @@ interface PaymentSectionProps {
   onPaymentError?: (error: any) => void;
   loading?: boolean;
   bookingId: string;
-  amount: number;
+  amount: number; // Display-only: comes from booking.totalAmount (backend-calculated)
   description?: string;
   paymentStatus?: 'pending' | 'processing' | 'success' | 'failed';
 }
 
 /**
  * Componente para seção de pagamento com Stripe
+ * 
+ * SECURITY NOTE: Amount is display-only and comes from booking.totalAmount.
+ * The actual payment amount is calculated and validated on the backend.
+ * Only bookingId is sent to the payment API.
  */
 export const PaymentSection: React.FC<PaymentSectionProps> = ({
   onBack,
