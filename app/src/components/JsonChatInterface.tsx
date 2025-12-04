@@ -47,8 +47,8 @@ export const JsonChatInterface: React.FC<JsonChatInterfaceProps> = ({
       <div className="chat-header">
         <h3>AIR Discovery - Chat Inteligente</h3>
         <div className="progress-bar">
-          <div 
-            className="progress-fill" 
+          <div
+            className="progress-fill"
             style={{ width: `${progress.percentage}%` }}
           />
           <span className="progress-text">
@@ -70,16 +70,6 @@ export const JsonChatInterface: React.FC<JsonChatInterfaceProps> = ({
             <div className="message-time">
               {message.timestamp.toLocaleTimeString()}
             </div>
-            
-            {/* Debug info para mensagens do assistant */}
-            {message.role === 'assistant' && message.jsonData && (
-              <div className="message-debug">
-                <small>
-                  Estágio: {message.jsonData.conversation_stage} | 
-                  Próxima pergunta: {message.jsonData.next_question_key || 'N/A'}
-                </small>
-              </div>
-            )}
           </div>
         ))}
 
@@ -98,28 +88,28 @@ export const JsonChatInterface: React.FC<JsonChatInterfaceProps> = ({
           <div className="data-item">
             <label>Origem:</label>
             <span>
-              {state.collectedData.origin_name ? 
-                `${state.collectedData.origin_name} (${state.collectedData.origin_iata})` : 
+              {state.collectedData.origin_name ?
+                `${state.collectedData.origin_name} (${state.collectedData.origin_iata})` :
                 'Não informado'
               }
             </span>
           </div>
-          
+
           <div className="data-item">
             <label>Orçamento:</label>
             <span>{formatters.formatBudget(state.collectedData.budget_in_brl)}</span>
           </div>
-          
+
           <div className="data-item">
             <label>Atividades:</label>
             <span>{formatters.formatActivities(state.collectedData.activities)}</span>
           </div>
-          
+
           <div className="data-item">
             <label>Propósito:</label>
             <span>{state.collectedData.purpose || 'Não informado'}</span>
           </div>
-          
+
           {state.collectedData.hobbies && (
             <div className="data-item">
               <label>Hobbies:</label>
@@ -159,7 +149,7 @@ export const JsonChatInterface: React.FC<JsonChatInterfaceProps> = ({
           <MessageInput
             onSend={handleSendMessage}
             disabled={!isReady || state.isTyping}
-            placeholder={progressInfo.nextStep || 'Digite sua mensagem...'}
+            placeholder='Digite sua mensagem...'
           />
         </div>
       )}
@@ -167,7 +157,7 @@ export const JsonChatInterface: React.FC<JsonChatInterfaceProps> = ({
       {/* Controles */}
       <div className="chat-controls">
         {state.isComplete && (
-          <button 
+          <button
             className="btn-primary"
             onClick={() => {
               // Navegar para página de reservas com a recomendação
@@ -179,15 +169,15 @@ export const JsonChatInterface: React.FC<JsonChatInterfaceProps> = ({
             Ver Opções de Voo
           </button>
         )}
-        
-        <button 
-          className="btn-secondary" 
+
+        <button
+          className="btn-secondary"
           onClick={handleReset}
           disabled={!isReady}
         >
           Recomeçar Chat
         </button>
-        
+
         <button className="btn-close" onClick={onClose}>
           Fechar
         </button>
@@ -245,8 +235,8 @@ const MessageInput: React.FC<MessageInputProps> = ({
         className="message-textarea"
         rows={1}
       />
-      <button 
-        type="submit" 
+      <button
+        type="submit"
         disabled={disabled || !message.trim()}
         className="send-button"
       >

@@ -10,30 +10,38 @@ describe('JsonPromptBuilder', () => {
       expect(prompt).toContain('COPIE TODOS esses dados para data_collected');
     });
 
-    it('should include button_options rule only for collecting_passengers stage', () => {
-      const prompt = JsonPromptBuilder.buildSystemPrompt();
-      
-      // Should mention button_options only for collecting_passengers
-      expect(prompt).toContain('Inclua button_options SOMENTE quando conversation_stage for "collecting_passengers"');
-      expect(prompt).toContain('button_options deve ser null em todos os outros stages');
-      
-      // Should NOT say "SEMPRE inclua button_options"
-      expect(prompt).not.toContain('SEMPRE inclua button_options ao perguntar sobre passageiros');
-    });
+    // Tests for button_options removal from LLM prompt (Requirements 1.1, 1.2, 1.3)
+    describe('button_options removal', () => {
+      it('should NOT include button_options in the JSON schema', () => {
+        const prompt = JsonPromptBuilder.buildSystemPrompt();
+        
+        // The JSON schema section should not mention button_options
+        expect(prompt).not.toContain('"button_options"');
+        expect(prompt).not.toContain('button_options:');
+      });
 
-    it('should specify button_options is required only during collecting_passengers', () => {
-      const prompt = JsonPromptBuilder.buildSystemPrompt();
-      
-      expect(prompt).toContain('button_options é OBRIGATÓRIO SOMENTE quando conversation_stage é "collecting_passengers"');
-    });
+      it('should NOT include button_options in the examples', () => {
+        const prompt = JsonPromptBuilder.buildSystemPrompt();
+        
+        // Examples should not contain button_options
+        expect(prompt).not.toContain('"button_options":[');
+        expect(prompt).not.toContain('"button_options": [');
+      });
 
-    it('should specify other stages should NOT have button_options', () => {
-      const prompt = JsonPromptBuilder.buildSystemPrompt();
-      
-      expect(prompt).toContain('collecting_availability');
-      expect(prompt).toContain('(SEM button_options)');
-      expect(prompt).toContain('collecting_activities');
-      expect(prompt).toContain('collecting_purpose');
+      it('should NOT include "COM BOTÕES" instructions in the prompt', () => {
+        const prompt = JsonPromptBuilder.buildSystemPrompt();
+        
+        expect(prompt).not.toContain('COM BOTÕES');
+        expect(prompt).not.toContain('com botões');
+      });
+
+      it('should NOT mention button_options rules or requirements', () => {
+        const prompt = JsonPromptBuilder.buildSystemPrompt();
+        
+        expect(prompt).not.toContain('Inclua button_options');
+        expect(prompt).not.toContain('button_options é OBRIGATÓRIO');
+        expect(prompt).not.toContain('button_options deve ser null');
+      });
     });
   });
 
@@ -64,7 +72,7 @@ describe('JsonPromptBuilder', () => {
       expect(prompt).toContain('Dados Já Coletados');
     });
 
-    it('should include instructions for button_options when in collecting_passengers stage', () => {
+    it('should NOT include button_options instructions in collecting_passengers stage', () => {
       const collectedData = {
         origin_name: 'São Paulo',
         origin_iata: 'GRU',
@@ -85,10 +93,12 @@ describe('JsonPromptBuilder', () => {
       );
 
       expect(prompt).toContain('collecting_passengers');
-      expect(prompt).toContain('button_options');
+      // button_options should NOT be mentioned - backend generates them
+      expect(prompt).not.toContain('button_options');
+      expect(prompt).not.toContain('COM BOTÕES');
     });
 
-    it('should NOT emphasize button_options when in other stages', () => {
+    it('should NOT include button_options instructions in any stage', () => {
       const collectedData = {
         origin_name: 'São Paulo',
         origin_iata: 'GRU',
@@ -108,24 +118,38 @@ describe('JsonPromptBuilder', () => {
         'Janeiro'
       );
 
-      // Should mention moving to collecting_availability
       expect(prompt).toContain('collecting_availability');
-      
-      // Should not require button_options for this stage
-      const lines = prompt.split('\n');
-      const availabilityInstruction = lines.find(line => 
-        line.includes('collecting_availability') && line.includes('MUDE')
-      );
-      
-      // The instruction should not mention button_options
-      if (availabilityInstruction) {
-        expect(availabilityInstruction).not.toContain('button_options');
-      }
+      expect(prompt).not.toContain('button_options');
+      expect(prompt).not.toContain('COM BOTÕES');
     });
   });
 
   describe('validateResponseFormat', () => {
-    it('should validate response with button_options during collecting_passengers', () => {
+    it('should validate response without button_options (LLM no longer generates them)', () => {
+      const response = JSON.stringify({
+        conversation_stage: 'collecting_passengers',
+        data_collected: {
+          origin_name: 'São Paulo',
+          origin_iata: 'GRU',
+          destination_name: null,
+          destination_iata: null,
+          activities: null,
+          budget_in_brl: 5000,
+          passenger_composition: { adults: 2, children: null },
+          availability_months: null,
+          purpose: null,
+          hobbies: null
+        },
+        next_question_key: 'passengers',
+        assistant_message: 'Quantas crianças?',
+        is_final_recommendation: false
+      });
+
+      const result = JsonPromptBuilder.validateResponseFormat(response);
+      expect(result.isValid).toBe(true);
+    });
+
+    it('should validate response and ignore button_options if LLM still includes them (backward compatibility)', () => {
       const response = JSON.stringify({
         conversation_stage: 'collecting_passengers',
         data_collected: {
@@ -149,11 +173,12 @@ describe('JsonPromptBuilder', () => {
         ]
       });
 
+      // Should still be valid - we ignore button_options from LLM
       const result = JsonPromptBuilder.validateResponseFormat(response);
       expect(result.isValid).toBe(true);
     });
 
-    it('should validate response without button_options in other stages', () => {
+    it('should validate response for non-passenger stages', () => {
       const response = JSON.stringify({
         conversation_stage: 'collecting_availability',
         data_collected: {
@@ -163,15 +188,14 @@ describe('JsonPromptBuilder', () => {
           destination_iata: null,
           activities: null,
           budget_in_brl: 5000,
-          passenger_composition: { adults: 2, children: null },
+          passenger_composition: { adults: 2, children: 1 },
           availability_months: null,
           purpose: null,
           hobbies: null
         },
         next_question_key: 'availability',
         assistant_message: 'Em qual mês você tem disponibilidade?',
-        is_final_recommendation: false,
-        button_options: null
+        is_final_recommendation: false
       });
 
       const result = JsonPromptBuilder.validateResponseFormat(response);

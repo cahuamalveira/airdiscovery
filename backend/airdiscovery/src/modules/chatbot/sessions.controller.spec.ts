@@ -3,6 +3,10 @@ import { ForbiddenException, NotFoundException } from '@nestjs/common';
 import { SessionsController } from './sessions.controller';
 import { ChatSessionRepository } from './repositories/chat-session.repository';
 import { ChatSession } from './interfaces/chat.interface';
+import { ChatbotService } from './chatbot.service';
+import { ConfigService } from '@nestjs/config';
+import { JsonResponseParser } from './utils/json-response-parser';
+import { LoggerService } from '../logger/logger.service';
 
 describe('SessionsController', () => {
   let controller: SessionsController;
@@ -60,6 +64,44 @@ describe('SessionsController', () => {
           provide: ChatSessionRepository,
           useValue: mockRepository,
         },
+        {
+          provide: ChatbotService,
+          useValue: {
+            getChatSession: jest.fn(),
+            startChatSession: jest.fn(),
+            processMessage: jest.fn(),
+            endChatSession: jest.fn()
+          }
+        },
+        {
+          provide: ConfigService,
+          useValue: {
+            get: jest.fn()
+          }
+        },
+        {
+          provide: JsonResponseParser,
+          useValue: {
+            sanitizeResponse: jest.fn(),
+            parseResponse: jest.fn(),
+            generateFallback: jest.fn()
+          }
+        },
+        {
+          provide: LoggerService,
+          useValue: {
+            child: jest.fn().mockReturnValue({
+              log: jest.fn(),
+              error: jest.fn(),
+              warn: jest.fn(),
+              debug: jest.fn()
+            }),
+            log: jest.fn(),
+            error: jest.fn(),
+            warn: jest.fn(),
+            debug: jest.fn()
+          }
+        }
       ],
     }).compile();
 

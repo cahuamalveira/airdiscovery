@@ -43,6 +43,55 @@ export interface ButtonOption {
 }
 
 /**
+ * Predefined button options for passenger collection
+ * These are generated on the frontend to avoid LLM inconsistencies
+ */
+export const PASSENGER_BUTTON_OPTIONS = {
+  adults: [
+    { label: '1 adulto', value: '1' },
+    { label: '2 adultos', value: '2' },
+    { label: '3 adultos', value: '3' },
+    { label: '4 adultos', value: '4' },
+  ] as readonly ButtonOption[],
+  
+  children: [
+    { label: 'Nenhuma', value: '0' },
+    { label: '1 criança', value: '1' },
+    { label: '2 crianças', value: '2' },
+    { label: '3 crianças', value: '3' },
+  ] as readonly ButtonOption[],
+} as const;
+
+/**
+ * Determines which button options to show based on conversation stage and collected data
+ * This is the source of truth for button options - NOT the LLM response
+ */
+export function getButtonOptionsForStage(
+  stage: ConversationStage,
+  collectedData: CollectedTravelData
+): readonly ButtonOption[] | null {
+  // Only show buttons during passenger collection
+  if (stage !== 'collecting_passengers') {
+    return null;
+  }
+
+  const passengerComp = collectedData.passenger_composition;
+
+  // If no adults collected yet, show adult options
+  if (!passengerComp || !passengerComp.adults || passengerComp.adults === 0) {
+    return PASSENGER_BUTTON_OPTIONS.adults;
+  }
+
+  // If adults collected but children not yet, show children options
+  if (passengerComp.children === null || passengerComp.children === undefined) {
+    return PASSENGER_BUTTON_OPTIONS.children;
+  }
+
+  // All passenger data collected, no buttons needed
+  return null;
+}
+
+/**
  * Resposta estruturada do chatbot
  */
 export interface ChatbotJsonResponse {
@@ -196,6 +245,64 @@ export interface JsonWebSocketEvents {
  * Utilitários para trabalhar com dados do chat JSON
  */
 export class JsonChatUtils {
+  /**
+   * Sanitiza mensagem do assistente removendo fragmentos JSON que possam ter vazado
+   * Esta é uma camada de proteção no frontend caso o backend não tenha limpado completamente
+   */
+  public static sanitizeAssistantMessage(message: string): string {
+    if (!message || typeof message !== 'string') {
+      return message || '';
+    }
+
+    let sanitized = message;
+
+    // Converte caracteres de escape unicode literais (ex: \u00e7 para ç)
+    sanitized = sanitized.replace(/\\u([0-9a-fA-F]{4})/g, (_, hex) => {
+      return String.fromCharCode(parseInt(hex, 16));
+    });
+
+    // Tenta extrair uma pergunta válida do texto corrompido
+    const questionMatch = sanitized.match(/([A-ZÁÉÍÓÚÂÊÎÔÛÃÕÇE][^?]*\?)/i);
+    if (questionMatch && questionMatch[1] && questionMatch[1].length > 10) {
+      const extractedQuestion = questionMatch[1].trim()
+        .replace(/^[\s\}\]\[{,]+/g, '') // Remove JSON fragments do início
+        .trim();
+      
+      if (!extractedQuestion.includes('"label"') && 
+          !extractedQuestion.includes('"value"') && 
+          extractedQuestion.length > 10) {
+        return extractedQuestion;
+      }
+    }
+
+    // Remove fragmentos de JSON que podem ter vazado (button_options, etc)
+    sanitized = sanitized.replace(/\[\s*\{[^}]*["']?label["']?\s*:\s*["'][^"']*["'][^}]*["']?value["']?\s*:\s*["'][^"']*["'][^}]*\}[^\]]*\]/gi, '');
+    
+    // Remove padrões como {"label":"...", "value":"..."} soltos
+    sanitized = sanitized.replace(/\{[^}]*["']?label["']?\s*:\s*["'][^"']*["'][^}]*["']?value["']?\s*:\s*["'][^"']*["'][^}]*\}/gi, '');
+    
+    // Remove fragmentos parciais de JSON no início e fim
+    sanitized = sanitized.replace(/^[\s\}\],]+/g, '');
+    sanitized = sanitized.replace(/[\s\[\{,]+$/g, '');
+    
+    // Remove vírgulas e colchetes órfãos
+    sanitized = sanitized.replace(/,\s*,/g, ',');
+    sanitized = sanitized.replace(/^\s*,\s*/g, '');
+    sanitized = sanitized.replace(/\s*,\s*$/g, '');
+    sanitized = sanitized.replace(/^\s*[\[\]{}]\s*/g, '');
+    sanitized = sanitized.replace(/\s*[\[\]{}]\s*$/g, '');
+    
+    // Remove múltiplos espaços
+    sanitized = sanitized.replace(/\s+/g, ' ').trim();
+    
+    // Se a mensagem ficou vazia ou muito curta, retorna fallback
+    if (!sanitized || sanitized.length < 5) {
+      return 'Como posso ajudá-lo?';
+    }
+
+    return sanitized;
+  }
+
   /**
    * Verifica se os dados estão prontos para recomendação
    */

@@ -274,6 +274,97 @@ export class JsonResponseParser {
   }
 
   /**
+   * Sanitiza o campo assistant_message removendo qualquer JSON ou fragmentos de código
+   * que possam ter vazado da resposta da LLM
+   */
+  private sanitizeAssistantMessage(message: string): string {
+    if (!message || typeof message !== 'string') {
+      return message;
+    }
+
+    let sanitized = message;
+
+    // Primeiro, converte caracteres de escape unicode literais (ex: \u00e7 para ç)
+    // Isso deve ser feito primeiro para que os outros padrões funcionem corretamente
+    sanitized = sanitized.replace(/\\u([0-9a-fA-F]{4})/g, (_, hex) => {
+      return String.fromCharCode(parseInt(hex, 16));
+    });
+
+    // Tenta extrair uma pergunta válida do texto corrompido
+    // Procura por padrões de perguntas em português que terminam com ?
+    const questionMatch = sanitized.match(/([A-ZÁÉÍÓÚÂÊÎÔÛÃÕÇE][^?]*\?)/i);
+    if (questionMatch && questionMatch[1] && questionMatch[1].length > 10) {
+      // Encontrou uma pergunta válida, usa ela
+      let extractedQuestion = questionMatch[1].trim();
+      // Remove fragmentos JSON do início da pergunta extraída
+      extractedQuestion = extractedQuestion.replace(/^[\s\}\]\[{,]+/g, '').trim();
+      // Verifica se a pergunta extraída não contém JSON
+      if (!extractedQuestion.includes('"label"') && !extractedQuestion.includes('"value"') && extractedQuestion.length > 10) {
+        this.logger.debug('Extracted question from corrupted message', {
+          function: 'sanitizeAssistantMessage',
+          originalMessage: message.substring(0, 100),
+          extractedQuestion
+        });
+        return extractedQuestion;
+      }
+    }
+
+    // Remove fragmentos de JSON que podem ter vazado (button_options, etc)
+    // Padrão: [{"label":"...", "value":"..."}] ou variações - versão mais agressiva
+    sanitized = sanitized.replace(/\[\s*\{[^}]*["']?label["']?\s*:\s*["'][^"']*["'][^}]*["']?value["']?\s*:\s*["'][^"']*["'][^}]*\}[^\]]*\]/gi, '');
+    
+    // Remove padrões como {"label":"...", "value":"..."} soltos (com ou sem aspas)
+    sanitized = sanitized.replace(/\{[^}]*["']?label["']?\s*:\s*["'][^"']*["'][^}]*["']?value["']?\s*:\s*["'][^"']*["'][^}]*\}/gi, '');
+    
+    // Remove fragmentos parciais de JSON no início
+    // Ex: }] ou }, no início da mensagem
+    sanitized = sanitized.replace(/^[\s\}\],]+/g, '');
+    
+    // Remove fragmentos parciais de JSON no fim
+    // Ex: [{ ou , no fim da mensagem
+    sanitized = sanitized.replace(/[\s\[\{,]+$/g, '');
+    
+    // Remove padrões específicos que aparecem no erro reportado
+    // Ex: "Nenhuma","value":"0"},{"label":"1 criança"...
+    sanitized = sanitized.replace(/["'][^"']*["']\s*,\s*["']?value["']?\s*:\s*["'][^"']*["']\s*\}/gi, '');
+    sanitized = sanitized.replace(/\{\s*["']?label["']?\s*:\s*["'][^"']*["']/gi, '');
+    
+    // Remove vírgulas órfãs que podem sobrar
+    sanitized = sanitized.replace(/,\s*,/g, ',');
+    sanitized = sanitized.replace(/^\s*,\s*/g, '');
+    sanitized = sanitized.replace(/\s*,\s*$/g, '');
+    
+    // Remove colchetes e chaves órfãos
+    sanitized = sanitized.replace(/^\s*[\[\]{}]\s*/g, '');
+    sanitized = sanitized.replace(/\s*[\[\]{}]\s*$/g, '');
+    
+    // Remove múltiplos espaços
+    sanitized = sanitized.replace(/\s+/g, ' ').trim();
+    
+    // Se a mensagem ficou vazia ou muito curta após sanitização, retorna fallback
+    if (!sanitized || sanitized.length < 5) {
+      this.logger.warn('Assistant message was empty after sanitization, using fallback', {
+        function: 'sanitizeAssistantMessage',
+        originalMessage: message.substring(0, 100)
+      });
+      return 'Como posso ajudá-lo?';
+    }
+
+    // Log se houve mudança significativa
+    if (sanitized !== message) {
+      this.logger.debug('Assistant message was sanitized', {
+        function: 'sanitizeAssistantMessage',
+        originalLength: message.length,
+        sanitizedLength: sanitized.length,
+        originalPreview: message.substring(0, 100),
+        sanitizedPreview: sanitized.substring(0, 100)
+      });
+    }
+
+    return sanitized;
+  }
+
+  /**
    * Valida dados parseados
    */
   private validateParsedData(data: any): ValidationResult {
@@ -371,33 +462,18 @@ export class JsonResponseParser {
         return stageValidation;
       }
 
-      // Preserva button_options se presente (campo opcional)
+      // Ignore button_options from LLM - they are now generated statically by ButtonOptionsGenerator
+      // Keep backward compatibility by not failing if button_options is present
       if (data.button_options) {
-        if (!Array.isArray(data.button_options)) {
-          this.logger.warn('button_options must be an array, ignoring', {
-            function: 'validateParsedData'
-          });
-          delete data.button_options;
-        } else {
-          // Valida estrutura dos botões
-          const validButtons = data.button_options.every((btn: any) => 
-            btn && typeof btn === 'object' && 
-            typeof btn.label === 'string' && 
-            typeof btn.value === 'string'
-          );
-          if (!validButtons) {
-            this.logger.warn('button_options has invalid structure, ignoring', {
-              function: 'validateParsedData'
-            });
-            delete data.button_options;
-          } else {
-            this.logger.debug('button_options preserved', {
-              function: 'validateParsedData',
-              buttonCount: data.button_options.length
-            });
-          }
-        }
+        this.logger.debug('Ignoring button_options from LLM response (now generated statically)', {
+          function: 'validateParsedData'
+        });
+        delete data.button_options;
       }
+
+      // SANITIZAÇÃO: Remove qualquer JSON que tenha vazado para o assistant_message
+      // Isso é uma proteção contra LLMs que misturam texto com estruturas JSON
+      data.assistant_message = this.sanitizeAssistantMessage(data.assistant_message);
 
       return {
         isValid: true,
@@ -483,7 +559,8 @@ export class JsonResponseParser {
     const validStages: ConversationStage[] = [
       'collecting_origin',
       'collecting_budget',
-      'collecting_availability', // 🔧 ADICIONADO: estava faltando
+      'collecting_passengers', // 🔧 ADICIONADO: para coleta de passageiros
+      'collecting_availability',
       'collecting_activities',
       'collecting_purpose',
       'collecting_hobbies',

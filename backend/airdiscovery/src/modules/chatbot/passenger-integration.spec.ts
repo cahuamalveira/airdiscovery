@@ -3,6 +3,8 @@ import { ConfigService } from '@nestjs/config';
 import { ChatSessionRepository } from './repositories/chat-session.repository';
 import { ChatbotService } from './chatbot.service';
 import { JsonChatSession, PassengerComposition } from './interfaces/json-response.interface';
+import { JsonResponseParser } from './utils/json-response-parser';
+import { LoggerService } from '../logger/logger.service';
 
 describe('Passenger Composition Integration Test', () => {
   let repository: jest.Mocked<ChatSessionRepository>;
@@ -35,6 +37,29 @@ describe('Passenger Composition Integration Test', () => {
               };
               return config[key] || defaultValue;
             })
+          }
+        },
+        {
+          provide: JsonResponseParser,
+          useValue: {
+            sanitizeResponse: jest.fn(),
+            parseResponse: jest.fn(),
+            generateFallback: jest.fn()
+          }
+        },
+        {
+          provide: LoggerService,
+          useValue: {
+            child: jest.fn().mockReturnValue({
+              log: jest.fn(),
+              error: jest.fn(),
+              warn: jest.fn(),
+              debug: jest.fn()
+            }),
+            log: jest.fn(),
+            error: jest.fn(),
+            warn: jest.fn(),
+            debug: jest.fn()
           }
         }
       ]

@@ -12,6 +12,7 @@ import { Person as PersonIcon } from '@mui/icons-material';
 import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
+import { cpf } from 'cpf-cnpj-validator';
 
 /**
  * Passenger schema - for single passenger (all fields required)
@@ -32,7 +33,8 @@ const passengerSchema = z.object({
   phone: z.string()
     .regex(/^\(\d{2}\)\s\d{4,5}-\d{4}$/, 'Telefone deve estar no formato (11) 99999-9999'),
   document: z.string()
-    .regex(/^\d{3}\.\d{3}\.\d{3}-\d{2}$/, 'CPF deve estar no formato 999.999.999-99'),
+    .regex(/^\d{3}\.\d{3}\.\d{3}-\d{2}$/, 'CPF deve estar no formato 999.999.999-99')
+    .refine((val) => cpf.isValid(val), 'CPF inválido'),
   birthDate: z.string()
     .regex(/^\d{4}-\d{2}-\d{2}$/, 'Data de nascimento deve estar no formato AAAA-MM-DD')
     .refine((date) => {
@@ -59,7 +61,8 @@ const multiPassengerSchema = z.object({
     email: z.string().optional().default(''),
     phone: z.string().optional().default(''),
     document: z.string()
-      .regex(/^\d{3}\.\d{3}\.\d{3}-\d{2}$/, 'CPF deve estar no formato 999.999.999-99'),
+      .regex(/^\d{3}\.\d{3}\.\d{3}-\d{2}$/, 'CPF deve estar no formato 999.999.999-99')
+      .refine((val) => cpf.isValid(val), 'CPF inválido'),
     birthDate: z.string()
       .regex(/^\d{4}-\d{2}-\d{2}$/, 'Data de nascimento deve estar no formato AAAA-MM-DD')
       .refine((date) => {
@@ -165,10 +168,21 @@ export const PassengerForm: React.FC<PassengerFormProps> = ({
     defaultValues: multiFormDefaultValues as any
   });
 
-  // Função para formatar CPF
+  // Função para formatar CPF (max 11 digits)
   const formatCPF = (value: string) => {
-    const cleaned = value.replace(/\D/g, '');
-    return cleaned.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4');
+    // Remove non-digits and limit to 11 characters
+    const cleaned = value.replace(/\D/g, '').slice(0, 11);
+    
+    // Apply mask progressively
+    if (cleaned.length <= 3) {
+      return cleaned;
+    } else if (cleaned.length <= 6) {
+      return cleaned.replace(/(\d{3})(\d{0,3})/, '$1.$2');
+    } else if (cleaned.length <= 9) {
+      return cleaned.replace(/(\d{3})(\d{3})(\d{0,3})/, '$1.$2.$3');
+    } else {
+      return cleaned.replace(/(\d{3})(\d{3})(\d{3})(\d{0,2})/, '$1.$2.$3-$4');
+    }
   };
 
   // Função para formatar telefone
@@ -190,9 +204,9 @@ export const PassengerForm: React.FC<PassengerFormProps> = ({
     if (passenger.type === 'adult') {
       label = 'Adulto';
     } else if (passenger.type === 'child') {
-      label = `Criança (${passenger.age} anos)`;
+      label = `Criança`;
     } else if (passenger.type === 'infant') {
-      label = `Bebê (${passenger.age} anos)`;
+      label = `Bebê`;
     }
     
     if (isPrimary) {
@@ -304,6 +318,7 @@ export const PassengerForm: React.FC<PassengerFormProps> = ({
                   const formatted = formatCPF(e.target.value);
                   onChange(formatted);
                 }}
+                inputProps={{ maxLength: 14 }}
                 error={!!errors.document}
                 helperText={errors.document?.message}
               />
@@ -430,6 +445,7 @@ export const PassengerForm: React.FC<PassengerFormProps> = ({
                   const formatted = formatCPF(e.target.value);
                   onChange(formatted);
                 }}
+                inputProps={{ maxLength: 14 }}
                 error={!!fieldErrors?.document}
                 helperText={fieldErrors?.document?.message}
               />

@@ -93,7 +93,7 @@ function RecommendationsPage() {
     fetchPassengerComposition();
   }, [sessionId, httpInterceptor]);
 
-  // Calculate total paying passengers (adults + children > 2 years)
+  // Calculate total paying passengers (adults + children)
   const payingPassengers = useMemo(() => {
     if (!passengerComposition) {
       return 1; // Default to 1 if no composition available
@@ -102,8 +102,7 @@ function RecommendationsPage() {
     let count = passengerComposition.adults;
     
     if (passengerComposition.children) {
-      // Count children over 2 years old as paying passengers
-      count += passengerComposition.children.filter(child => child.age > 2).length;
+      count += passengerComposition.children;
     }
 
     return count;
@@ -340,55 +339,12 @@ function RecommendationsPage() {
                       {formatCurrency(parseFloat(offer.price.total) * 100)}
                     </Typography>
                     <Typography variant="body2" color="text.secondary">
-                      Total por pessoa
+                      {offer.itineraries.length > 1 ? 'Preço total ida e volta' : 'Preço total'}
                     </Typography>
-                  </Box>
-                </Box>
-
-                <Divider sx={{ my: 2 }} />
-
-                {/* Detalhes do voo */}
-                {offer.itineraries.map((itinerary, index) => (
-                  <Box key={index} sx={{ mb: 2 }}>
-                    <Stack direction="row" spacing={2} alignItems="center" sx={{ mb: 1 }} flexWrap="wrap">
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                        <FlightTakeoff color="primary" />
-                        <Typography variant="body2" fontWeight="medium">
-                          {new Date(itinerary.segments[0].departure.at).toLocaleString('pt-BR', {
-                            month: 'short',
-                            day: 'numeric',
-                            hour: '2-digit',
-                            minute: '2-digit'
-                          })}
-                        </Typography>
-                      </Box>
-                      
-                      <Flight color="action" />
-                      
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                        <FlightLand color="primary" />
-                        <Typography variant="body2" fontWeight="medium">
-                          {new Date(itinerary.segments[itinerary.segments.length - 1].arrival.at).toLocaleString('pt-BR', {
-                            month: 'short',
-                            day: 'numeric',
-                            hour: '2-digit',
-                            minute: '2-digit'
-                          })}
-                        </Typography>
-                      </Box>
-                      
-                      <Typography variant="body2" color="text.secondary">
-                        ⏱️ {itinerary.duration.replace('PT', '').replace('H', 'h ').replace('M', 'm')}
-                      </Typography>
-                    </Stack>
-                    
-                    <Stack direction="row" spacing={1} sx={{ mt: 1 }} flexWrap="wrap">
-                      <Chip 
-                        label={`${itinerary.segments.length === 1 ? '✈️ Voo Direto' : `🔄 ${itinerary.segments.length - 1} escala(s)`}`}
-                        size="small"
-                        color={itinerary.segments.length === 1 ? 'success' : 'default'}
-                        variant={itinerary.segments.length === 1 ? 'filled' : 'outlined'}
-                      />
+                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+                      por passageiro
+                    </Typography>
+                    <Stack direction="row" spacing={1} sx={{ mt: 1, justifyContent: 'flex-end' }} flexWrap="wrap">
                       <Chip 
                         label={`🪑 ${offer.numberOfBookableSeats} assentos`}
                         size="small"
@@ -396,13 +352,129 @@ function RecommendationsPage() {
                         color={offer.numberOfBookableSeats <= 3 ? 'warning' : 'default'}
                       />
                       <Chip 
-                        label={`💼 ${offer.price.currency}`}
+                        label={offer.price.currency}
                         size="small"
                         variant="outlined"
                       />
                     </Stack>
                   </Box>
-                ))}
+                </Box>
+
+                <Divider sx={{ my: 2 }} />
+
+                {/* Detalhes do voo */}
+                {offer.itineraries.map((itinerary, index) => {
+                  const firstSegment = itinerary.segments[0];
+                  const lastSegment = itinerary.segments[itinerary.segments.length - 1];
+                  const isOutbound = index === 0;
+                  const isReturn = index === 1;
+                  
+                  return (
+                    <Box 
+                      key={index} 
+                      sx={{ 
+                        mb: index < offer.itineraries.length - 1 ? 2 : 0,
+                        p: 2,
+                        borderRadius: 2,
+                        bgcolor: offer.itineraries.length > 1 ? 'background.default' : 'transparent',
+                        border: offer.itineraries.length > 1 ? '1px solid' : 'none',
+                        borderColor: 'divider'
+                      }}
+                    >
+                      {/* Label for Ida/Volta when there are multiple itineraries */}
+                      {offer.itineraries.length > 1 && (
+                        <Box 
+                          sx={{ 
+                            mb: 2, 
+                            display: 'flex', 
+                            alignItems: 'center', 
+                            gap: 1,
+                            pb: 1.5,
+                            borderBottom: '2px solid',
+                            borderColor: isOutbound ? 'primary.main' : 'secondary.main'
+                          }}
+                        >
+                          {isOutbound && <FlightTakeoff color="primary" fontSize="small" />}
+                          {isReturn && <FlightLand color="secondary" fontSize="small" />}
+                          <Typography 
+                            variant="subtitle1" 
+                            fontWeight="bold" 
+                            color={isOutbound ? 'primary' : 'secondary'}
+                          >
+                            {isOutbound && 'Voo de Ida'}
+                            {isReturn && 'Voo de Volta'}
+                          </Typography>
+                        </Box>
+                      )}
+                      
+                      <Stack 
+                        direction={{ xs: 'column', sm: 'row' }} 
+                        spacing={{ xs: 2, sm: 2 }} 
+                        alignItems={{ xs: 'flex-start', sm: 'center' }} 
+                        sx={{ mb: 1.5 }}
+                      >
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: { xs: '100%', sm: 'auto' } }}>
+                          <FlightTakeoff color="action" fontSize="small" />
+                          <Box>
+                            <Typography variant="body1" fontWeight="bold">
+                              {firstSegment.departure.iataCode}
+                            </Typography>
+                            <Typography variant="caption" color="text.secondary">
+                              {new Date(firstSegment.departure.at).toLocaleString('pt-BR', {
+                                month: 'short',
+                                day: 'numeric',
+                                hour: '2-digit',
+                                minute: '2-digit'
+                              })}
+                            </Typography>
+                          </Box>
+                        </Box>
+                        
+                        <Box sx={{ display: { xs: 'none', sm: 'flex' }, alignItems: 'center' }}>
+                          <Flight color="action" />
+                        </Box>
+                        
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: { xs: '100%', sm: 'auto' } }}>
+                          <FlightLand color="action" fontSize="small" />
+                          <Box>
+                            <Typography variant="body1" fontWeight="bold">
+                              {lastSegment.arrival.iataCode}
+                            </Typography>
+                            <Typography variant="caption" color="text.secondary">
+                              {new Date(lastSegment.arrival.at).toLocaleString('pt-BR', {
+                                month: 'short',
+                                day: 'numeric',
+                                hour: '2-digit',
+                                minute: '2-digit'
+                              })}
+                            </Typography>
+                          </Box>
+                        </Box>
+                        
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                          <Typography variant="body2" color="text.secondary" fontWeight="medium">
+                            ⏱️ {itinerary.duration.replace('PT', '').replace('H', 'h ').replace('M', 'm')}
+                          </Typography>
+                        </Box>
+                      </Stack>
+                      
+                      <Stack direction="row" spacing={1} sx={{ mt: 1.5 }} flexWrap="wrap" useFlexGap>
+                        <Chip 
+                          label={`${itinerary.segments.length === 1 ? '✈️ Voo Direto' : `🔄 ${itinerary.segments.length - 1} escala(s)`}`}
+                          size="small"
+                          color={itinerary.segments.length === 1 ? 'success' : 'default'}
+                          variant={itinerary.segments.length === 1 ? 'filled' : 'outlined'}
+                        />
+                        {/* Show airline for each itinerary */}
+                        <Chip 
+                          label={`${dictionaries?.carriers[firstSegment.carrierCode] || firstSegment.carrierCode}`}
+                          size="small"
+                          variant="outlined"
+                        />
+                      </Stack>
+                    </Box>
+                  );
+                })}
 
                 <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 2 }}>
                   <Button

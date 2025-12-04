@@ -53,12 +53,7 @@ const Home: React.FC = () => {
               <Typography variant="body1" color="text.secondary" paragraph>
                 Responda algumas perguntas simples e descubra roteiros turísticos personalizados que combinam com seu perfil e preferências.
               </Typography>
-              <Button 
-                variant="outlined" 
-                onClick={() => navigate('/destinos')}
-              >
-                Explorar Destinos
-              </Button>
+            
             </CardContent>
           </Card>
         </Grid>
@@ -77,13 +72,7 @@ const Home: React.FC = () => {
               <Typography variant="body1" color="text.secondary" paragraph>
                 Encontre as melhores ofertas de passagens aéreas para seu destino escolhido, com opções de voos saindo de diversas cidades brasileiras.
               </Typography>
-              <Button 
-                variant="outlined"
-                onClick={() => navigate('/voos')}
-                startIcon={<FlightTakeoffIcon />}
-              >
-                Buscar Voos
-              </Button>
+             
             </CardContent>
           </Card>
         </Grid>

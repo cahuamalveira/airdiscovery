@@ -4,11 +4,15 @@ import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import userEvent from '@testing-library/user-event';
 import BookingDetailPage from './BookingDetailPage';
 import * as useBookingDetailModule from '../hooks/useBookingDetail';
+import * as useFlightModule from '../hooks/useFlight';
 import { BookingStatus } from '../types/booking';
 import type { BookingResponseDto } from '../types/booking';
 
 // Mock the useBookingDetail hook
 vi.mock('../hooks/useBookingDetail');
+
+// Mock the useFlight hook
+vi.mock('../hooks/useFlight');
 
 // Mock child components
 vi.mock('../components/booking/BoardingPassCard', () => ({
@@ -65,10 +69,54 @@ describe('BookingDetailPage', () => {
     updatedAt: '2024-01-20T10:00:00Z',
   };
 
+  const mockFlight = {
+    id: 'flight-456',
+    amadeusOfferId: 'amadeus-123',
+    flightNumber: 'LA-3000',
+    departureCode: 'GRU',
+    arrivalCode: 'REC',
+    departureDateTime: '2024-02-15T10:00:00Z',
+    arrivalDateTime: '2024-02-15T13:00:00Z',
+    priceTotal: 450000,
+    currency: 'BRL',
+    amadeusOfferPayload: {
+      itineraries: [
+        {
+          segments: [
+            {
+              departure: { iataCode: 'GRU', at: '2024-02-15T10:00:00Z' },
+              arrival: { iataCode: 'REC', at: '2024-02-15T13:00:00Z' },
+              carrierCode: 'LA',
+              number: '3000',
+            },
+          ],
+        },
+        {
+          segments: [
+            {
+              departure: { iataCode: 'REC', at: '2024-02-22T14:00:00Z' },
+              arrival: { iataCode: 'GRU', at: '2024-02-22T17:00:00Z' },
+              carrierCode: 'LA',
+              number: '3001',
+            },
+          ],
+        },
+      ],
+    },
+  };
+
   const mockRefetch = vi.fn();
 
   beforeEach(() => {
     vi.clearAllMocks();
+    
+    // Set default mock for useFlight
+    vi.mocked(useFlightModule.useFlight).mockReturnValue({
+      flight: mockFlight,
+      loading: false,
+      error: null,
+      refetch: vi.fn(),
+    });
   });
 
   const renderWithRouter = (bookingId: string = 'booking-123') => {
@@ -91,6 +139,13 @@ describe('BookingDetailPage', () => {
         isError: false,
         error: null,
         refetch: mockRefetch,
+      });
+
+      vi.mocked(useFlightModule.useFlight).mockReturnValue({
+        flight: null,
+        loading: false,
+        error: null,
+        refetch: vi.fn(),
       });
 
       renderWithRouter();

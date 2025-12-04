@@ -24,14 +24,6 @@ export const FlightSummary: React.FC<FlightSummaryProps> = ({
   flightOffer, 
   dictionaries 
 }) => {
-  // Extrair informações dos itinerários
-  const itinerary = flightOffer.itineraries[0];
-  const segment = itinerary.segments[0];
-  
-  const departureAirport = dictionaries?.locations?.[segment.departure.iataCode];
-  const arrivalAirport = dictionaries?.locations?.[segment.arrival.iataCode];
-  const airline = dictionaries?.carriers?.[segment.carrierCode];
-
   const formatDate = (dateTime: string) => {
     return new Date(dateTime).toLocaleString('pt-BR', {
       day: '2-digit',
@@ -51,6 +43,77 @@ export const FlightSummary: React.FC<FlightSummaryProps> = ({
     return duration;
   };
 
+  const renderItinerary = (itinerary: any, index: number) => {
+    const firstSegment = itinerary.segments[0];
+    const lastSegment = itinerary.segments[itinerary.segments.length - 1];
+    
+    const departureAirport = dictionaries?.locations?.[firstSegment.departure.iataCode];
+    const arrivalAirport = dictionaries?.locations?.[lastSegment.arrival.iataCode];
+    const airline = dictionaries?.carriers?.[firstSegment.carrierCode];
+
+    // Label for round-trip flights
+    const isRoundTrip = flightOffer.itineraries.length > 1;
+    const label = isRoundTrip ? (index === 0 ? 'Ida' : 'Volta') : null;
+
+    return (
+      <Box key={index}>
+        {label && (
+          <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+            <FlightTakeoffIcon color="primary" sx={{ mr: 1, fontSize: 20 }} />
+            <Typography variant="subtitle1" fontWeight="bold" color="primary">
+              {label}
+            </Typography>
+          </Box>
+        )}
+        
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
+          <Box sx={{ textAlign: 'center' }}>
+            <Typography variant="h5" fontWeight="bold">
+              {formatDate(firstSegment.departure.at).split(' ')[1]}
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              {firstSegment.departure.iataCode}
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              {departureAirport?.cityCode || firstSegment.departure.iataCode}
+            </Typography>
+          </Box>
+          
+          <Box sx={{ flex: 1, textAlign: 'center', mx: 2 }}>
+            <FlightTakeoffIcon color="primary" />
+            <Typography variant="body2" color="text.secondary">
+              {formatDuration(itinerary.duration)}
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              {airline || firstSegment.carrierCode} • {firstSegment.aircraft?.code || 'N/A'}
+            </Typography>
+          </Box>
+          
+          <Box sx={{ textAlign: 'center' }}>
+            <Typography variant="h5" fontWeight="bold">
+              {formatDate(lastSegment.arrival.at).split(' ')[1]}
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              {lastSegment.arrival.iataCode}
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              {arrivalAirport?.cityCode || lastSegment.arrival.iataCode}
+            </Typography>
+          </Box>
+        </Box>
+
+        <Box>
+          <Typography variant="body2" color="text.secondary" gutterBottom>
+            Data do Voo
+          </Typography>
+          <Typography variant="body1" fontWeight="medium">
+            {formatDate(firstSegment.departure.at).split(' ')[0]}
+          </Typography>
+        </Box>
+      </Box>
+    );
+  };
+
   return (
     <Card elevation={2}>
       <CardContent>
@@ -61,52 +124,12 @@ export const FlightSummary: React.FC<FlightSummaryProps> = ({
           </Typography>
         </Box>
         
-        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 3 }}>
-          <Box sx={{ textAlign: 'center' }}>
-            <Typography variant="h5" fontWeight="bold">
-              {formatDate(segment.departure.at).split(' ')[1]}
-            </Typography>
-            <Typography variant="body2" color="text.secondary">
-              {segment.departure.iataCode}
-            </Typography>
-            <Typography variant="body2" color="text.secondary">
-              {departureAirport?.cityCode || segment.departure.iataCode}
-            </Typography>
-          </Box>
-          
-          <Box sx={{ flex: 1, textAlign: 'center', mx: 2 }}>
-            <FlightTakeoffIcon color="primary" />
-            <Typography variant="body2" color="text.secondary">
-              {formatDuration(itinerary.duration)}
-            </Typography>
-            <Typography variant="body2" color="text.secondary">
-              {airline || segment.carrierCode} • {segment.aircraft?.code || 'N/A'}
-            </Typography>
-          </Box>
-          
-          <Box sx={{ textAlign: 'center' }}>
-            <Typography variant="h5" fontWeight="bold">
-              {formatDate(segment.arrival.at).split(' ')[1]}
-            </Typography>
-            <Typography variant="body2" color="text.secondary">
-              {segment.arrival.iataCode}
-            </Typography>
-            <Typography variant="body2" color="text.secondary">
-              {arrivalAirport?.cityCode || segment.arrival.iataCode}
-            </Typography>
-          </Box>
-        </Box>
-
-        <Divider sx={{ my: 2 }} />
-        
-        <Box>
-          <Typography variant="body2" color="text.secondary" gutterBottom>
-            Data do Voo
-          </Typography>
-          <Typography variant="body1" fontWeight="medium">
-            {formatDate(segment.departure.at).split(' ')[0]}
-          </Typography>
-        </Box>
+        {flightOffer.itineraries.map((itinerary, index) => (
+          <React.Fragment key={index}>
+            {index > 0 && <Divider sx={{ my: 3 }} />}
+            {renderItinerary(itinerary, index)}
+          </React.Fragment>
+        ))}
       </CardContent>
     </Card>
   );

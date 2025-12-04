@@ -3,9 +3,21 @@
  * para uso na API Amadeus
  */
 
+import { addDays, format } from 'date-fns';
+import { toZonedTime } from 'date-fns-tz';
+
+const TIMEZONE = 'America/Sao_Paulo';
+
 interface DateRange {
   departureDate: string; // Formato: YYYY-MM-DD
   returnDate: string;    // Formato: YYYY-MM-DD
+}
+
+/**
+ * Obtém a data atual no timezone de São Paulo
+ */
+function getNowInSaoPaulo(): Date {
+  return toZonedTime(new Date(), TIMEZONE);
 }
 
 /**
@@ -15,7 +27,8 @@ const MONTH_MAP: Record<string, number> = {
   // Português completo
   'janeiro': 1,
   'fevereiro': 2,
-  'março': 3,
+  'marco': 3,  // Normalizado sem cedilha
+  'março': 3,  // Com cedilha também
   'abril': 4,
   'maio': 5,
   'junho': 6,
@@ -64,12 +77,11 @@ function monthNameToNumber(monthName: string): number | null {
  * Retorna uma data no meio do mês, pelo menos 14 dias no futuro
  */
 function calculateDepartureDate(monthNumber: number, year: number): Date {
-  const now = new Date();
+  const now = getNowInSaoPaulo();
   const targetDate = new Date(year, monthNumber - 1, 15); // Dia 15 do mês
   
   // Se a data calculada está no passado ou muito próxima (menos de 14 dias)
-  const minDate = new Date(now);
-  minDate.setDate(minDate.getDate() + 14); // Pelo menos 14 dias no futuro
+  const minDate = addDays(now, 14); // Pelo menos 14 dias no futuro
   
   if (targetDate < minDate) {
     // Se o mês já passou ou está muito próximo, usa o mesmo mês do próximo ano
@@ -91,20 +103,17 @@ export function convertAvailabilityToDateRange(
   availabilityMonths: readonly string[] | string[] | null | undefined,
   tripDuration: number = 7
 ): DateRange {
-  const now = new Date();
+  const now = getNowInSaoPaulo();
   const currentYear = now.getFullYear();
   
   // Caso padrão: se não houver meses especificados, usa 30 dias no futuro
   if (!availabilityMonths || availabilityMonths.length === 0) {
-    const departureDate = new Date(now);
-    departureDate.setDate(departureDate.getDate() + 30);
-    
-    const returnDate = new Date(departureDate);
-    returnDate.setDate(returnDate.getDate() + tripDuration);
+    const departureDate = addDays(now, 30);
+    const returnDate = addDays(departureDate, tripDuration);
     
     return {
-      departureDate: formatDateToISO(departureDate),
-      returnDate: formatDateToISO(returnDate)
+      departureDate: format(departureDate, 'yyyy-MM-dd'),
+      returnDate: format(returnDate, 'yyyy-MM-dd')
     };
   }
   
@@ -116,42 +125,28 @@ export function convertAvailabilityToDateRange(
   
   if (monthNumbers.length === 0) {
     // Se nenhum mês válido foi encontrado, usa padrão
-    const departureDate = new Date(now);
-    departureDate.setDate(departureDate.getDate() + 30);
-    
-    const returnDate = new Date(departureDate);
-    returnDate.setDate(returnDate.getDate() + tripDuration);
+    const nowFallback = getNowInSaoPaulo();
+    const departureDate = addDays(nowFallback, 30);
+    const returnDate = addDays(departureDate, tripDuration);
     
     return {
-      departureDate: formatDateToISO(departureDate),
-      returnDate: formatDateToISO(returnDate)
+      departureDate: format(departureDate, 'yyyy-MM-dd'),
+      returnDate: format(returnDate, 'yyyy-MM-dd')
     };
   }
   
   // Usa o primeiro mês disponível
   const firstAvailableMonth = monthNumbers[0];
   const departureDate = calculateDepartureDate(firstAvailableMonth, currentYear);
-  
-  // Calcula data de retorno
-  const returnDate = new Date(departureDate);
-  returnDate.setDate(returnDate.getDate() + tripDuration);
+  const returnDate = addDays(departureDate, tripDuration);
   
   return {
-    departureDate: formatDateToISO(departureDate),
-    returnDate: formatDateToISO(returnDate)
+    departureDate: format(departureDate, 'yyyy-MM-dd'),
+    returnDate: format(returnDate, 'yyyy-MM-dd')
   };
 }
 
-/**
- * Formata Date para string ISO (YYYY-MM-DD)
- */
-function formatDateToISO(date: Date): string {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  
-  return `${year}-${month}-${day}`;
-}
+
 
 /**
  * Converte meses de disponibilidade para sugestões de múltiplas datas
@@ -169,7 +164,7 @@ export function convertAvailabilityToMultipleDateRanges(
     return [convertAvailabilityToDateRange(availabilityMonths, tripDuration)];
   }
   
-  const now = new Date();
+  const now = getNowInSaoPaulo();
   const currentYear = now.getFullYear();
   const ranges: DateRange[] = [];
   
@@ -180,12 +175,11 @@ export function convertAvailabilityToMultipleDateRanges(
   
   for (const monthNumber of monthNumbers) {
     const departureDate = calculateDepartureDate(monthNumber, currentYear);
-    const returnDate = new Date(departureDate);
-    returnDate.setDate(returnDate.getDate() + tripDuration);
+    const returnDate = addDays(departureDate, tripDuration);
     
     ranges.push({
-      departureDate: formatDateToISO(departureDate),
-      returnDate: formatDateToISO(returnDate)
+      departureDate: format(departureDate, 'yyyy-MM-dd'),
+      returnDate: format(returnDate, 'yyyy-MM-dd')
     });
   }
   
@@ -228,7 +222,7 @@ export function getNextAvailableMonth(
     return null;
   }
   
-  const now = new Date();
+  const now = getNowInSaoPaulo();
   const currentMonth = now.getMonth() + 1;
   
   const monthNumbers = availabilityMonths
@@ -236,8 +230,8 @@ export function getNextAvailableMonth(
     .filter((num): num is number => num !== null)
     .sort((a, b) => a - b);
   
-  // Procura o primeiro mês >= mês atual
-  const nextMonth = monthNumbers.find(month => month >= currentMonth);
+  // Procura o primeiro mês > mês atual (próximo mês, não o atual)
+  const nextMonth = monthNumbers.find(month => month > currentMonth);
   
   if (nextMonth) {
     // Retorna o nome original do mês

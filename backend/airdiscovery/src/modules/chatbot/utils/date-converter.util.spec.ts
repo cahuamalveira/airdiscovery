@@ -7,7 +7,7 @@ import {
 
 describe('DateConverterUtil', () => {
   // Mock da data atual para testes consistentes
-  const mockNow = new Date('2025-11-12'); // 12 de novembro de 2025
+  const mockNow = new Date('2025-11-12T12:00:00.000Z'); // 12 de novembro de 2025, meio-dia UTC
   
   beforeEach(() => {
     jest.useFakeTimers();
@@ -160,10 +160,10 @@ describe('DateConverterUtil', () => {
       expect(result).toBe('Janeiro'); // Será do próximo ano
     });
 
-    it('deve retornar mês atual se disponível', () => {
+    it('deve retornar próximo mês quando mês atual está disponível', () => {
       const result = getNextAvailableMonth(['Novembro', 'Dezembro']);
       
-      expect(result).toBe('Novembro');
+      expect(result).toBe('Dezembro'); // Retorna o próximo após o atual
     });
 
     it('deve retornar null quando array vazio', () => {

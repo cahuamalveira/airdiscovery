@@ -1,7 +1,7 @@
 import { useReducer, useEffect, useRef } from 'react';
 import { io, Socket } from 'socket.io-client';
 import { jsonChatReducer, jsonChatInitialState } from '../reducers/jsonChatReducer';
-import { JsonChatAction } from '../types/json-chat';
+import { JsonChatAction, JsonChatUtils } from '../types/json-chat';
 
 interface UseJsonSocketConnectionProps {
   isOpen: boolean;
@@ -55,10 +55,15 @@ export const useJsonSocketConnection = ({ isOpen, user, chatId }: UseJsonSocketC
       dispatch({ type: 'SET_TYPING', payload: !chunk.isComplete });
 
       if (chunk.content) {
+        // Sanitiza o conteúdo do chunk para remover JSON vazado
+        const sanitizedContent = chunk.isComplete 
+          ? JsonChatUtils.sanitizeAssistantMessage(chunk.content)
+          : chunk.content; // Não sanitiza durante streaming para evitar problemas
+        
         dispatch({ 
           type: 'UPDATE_STREAMING_MESSAGE', 
           payload: {
-            content: chunk.content,
+            content: sanitizedContent,
             isComplete: chunk.isComplete,
             jsonData: chunk.jsonData
           }
@@ -95,9 +100,14 @@ export const useJsonSocketConnection = ({ isOpen, user, chatId }: UseJsonSocketC
         
         // Adiciona mensagem do assistente
         if (response.content || response.jsonData) {
+          // Sanitiza o conteúdo da mensagem para remover qualquer JSON que tenha vazado
+          const sanitizedContent = JsonChatUtils.sanitizeAssistantMessage(
+            response.content || response.jsonData?.assistant_message || ''
+          );
+          
           const assistantMessage = {
             id: crypto.randomUUID(),
-            content: response.content,
+            content: sanitizedContent,
             role: 'assistant' as const,
             timestamp: new Date(),
             jsonData: response.jsonData,
@@ -138,10 +148,13 @@ export const useJsonSocketConnection = ({ isOpen, user, chatId }: UseJsonSocketC
         }
       }
 
+      // Sanitiza o conteúdo antes de exibir
+      const sanitizedContent = JsonChatUtils.sanitizeAssistantMessage(response.content || '');
+
       dispatch({ 
         type: 'UPDATE_STREAMING_MESSAGE', 
         payload: {
-          content: response.content,
+          content: sanitizedContent,
           isComplete: true,
           jsonData: parsedResponse.jsonData
         }

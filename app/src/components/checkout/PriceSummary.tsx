@@ -50,12 +50,21 @@ export const PriceSummary: React.FC<PriceSummaryProps> = ({
     );
   }
 
+  // Check if this is a round-trip flight
+  const isRoundTrip = flightOffer.itineraries.length > 1;
+
   return (
     <Card elevation={2} sx={{ bgcolor: 'grey.50' }}>
       <CardContent>
         <Typography variant="h6" fontWeight="bold" gutterBottom>
           Resumo do Pagamento
         </Typography>
+        
+        {isRoundTrip && (
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+            Voo ida e volta
+          </Typography>
+        )}
         
         {passengerCount > 1 && (
           <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>

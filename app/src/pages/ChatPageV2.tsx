@@ -34,7 +34,7 @@ import { ChatButtons } from '@/components/chat/ChatButtons';
 import { useAuth } from '@/contexts/AuthContext';
 import { useJsonChatProgress, useJsonChatFormatters } from '@/hooks/useJsonChat';
 import { useJsonSocketConnection } from '@/hooks/useJsonSocketConnection';
-import { JsonChatUtils } from '@/types/json-chat';
+import { JsonChatUtils, getButtonOptionsForStage } from '@/types/json-chat';
 import { generateChatId, isValidChatId, createChatUrl } from '@/utils/chatUtils';
 import { createRecommendationsUrl, createDefaultTravelParams } from '@/utils/navigationUtils';
 
@@ -86,15 +86,19 @@ const ChatPageV2: React.FC = () => {
         }
     }, [state.messages]);
 
-    // Check if the last assistant message has button options
+    // Generate button options based on current stage and collected data
+    // This is the source of truth - NOT the LLM response
+    const frontendButtonOptions = getButtonOptionsForStage(state.currentStage, state.collectedData);
+
+    // Check if we should show buttons (frontend-generated takes priority)
     useEffect(() => {
         const lastMessage = state.messages[state.messages.length - 1];
-        if (lastMessage?.role === 'assistant' && lastMessage.buttonOptions && lastMessage.buttonOptions.length > 0) {
-            setHasActiveButtons(true);
-        } else {
-            setHasActiveButtons(false);
-        }
-    }, [state.messages]);
+        const hasLLMButtons = !!(lastMessage?.role === 'assistant' && lastMessage.buttonOptions && lastMessage.buttonOptions.length > 0);
+        const hasFrontendButtons = !!(frontendButtonOptions && frontendButtonOptions.length > 0);
+        
+        // Show buttons if either frontend or LLM provides them (frontend takes priority)
+        setHasActiveButtons(hasFrontendButtons || hasLLMButtons);
+    }, [state.messages, frontendButtonOptions]);
 
     // Handle sessionId validation and redirection
     useEffect(() => {
@@ -410,7 +414,11 @@ const ChatPageV2: React.FC = () => {
                         <Box sx={{ flexGrow: 1, overflow: 'auto', p: 2 }}>
                             {state.messages.map((message: any, index: number) => {
                                 const isLastMessage = index === state.messages.length - 1;
-                                const showButtons = isLastMessage && message.role === 'assistant' && message.buttonOptions && message.buttonOptions.length > 0;
+                                // Use frontend-generated buttons as primary source, fallback to LLM buttons
+                                const buttonsToShow = isLastMessage && message.role === 'assistant' 
+                                    ? (frontendButtonOptions || message.buttonOptions)
+                                    : null;
+                                const showButtons = buttonsToShow && buttonsToShow.length > 0;
                                 
                                 return (
                                     <Box key={message.id} sx={{ mb: 2 }}>
@@ -438,18 +446,18 @@ const ChatPageV2: React.FC = () => {
                                                     </Typography>
                                                     
                                                     {/* Debug info para desenvolvimento */}
-                                                    {message.role === 'assistant' && message.jsonData && process.env.NODE_ENV === 'development' && (
+                                                    {/* {message.role === 'assistant' && message.jsonData && process.env.NODE_ENV === 'development' && (
                                                         <Typography variant="caption" sx={{ opacity: 0.5, display: 'block', mt: 0.5, fontSize: '0.7rem' }}>
                                                             Estágio: {message.jsonData.conversation_stage} | 
                                                             Próxima: {message.jsonData.next_question_key || 'N/A'}
                                                         </Typography>
-                                                    )}
+                                                    )} */}
                                                 </Paper>
                                                 
-                                                {/* Render buttons if this is the last assistant message with button options */}
+                                                {/* Render buttons - frontend-generated takes priority over LLM */}
                                                 {showButtons && (
                                                     <ChatButtons
-                                                        options={message.buttonOptions}
+                                                        options={buttonsToShow}
                                                         onButtonClick={handleButtonClick}
                                                         disabled={!isReady || state.isTyping}
                                                     />

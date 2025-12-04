@@ -8,6 +8,7 @@ import {
   Alert,
   Skeleton,
   Stack,
+  Divider,
 } from '@mui/material';
 import { ArrowBack as ArrowBackIcon, Refresh as RefreshIcon } from '@mui/icons-material';
 import { useBookingDetail } from '../hooks/useBookingDetail';
@@ -37,16 +38,48 @@ const BookingDetailPage: React.FC = () => {
 
   // Extract flight details from Amadeus offer - supports multiple itineraries (round-trip)
   const flightItineraries = useMemo(() => {
-    if (!flight?.amadeusOfferPayload) return [];
+    // Handle missing flight data
+    if (!flight?.amadeusOfferPayload) {
+      console.log('[BookingDetailPage] No flight or amadeusOfferPayload available');
+      return [];
+    }
     
     const offer = flight.amadeusOfferPayload as AmadeusFlightOffer;
     
+    // Handle missing or malformed itineraries
+    if (!offer.itineraries || !Array.isArray(offer.itineraries)) {
+      console.error('[BookingDetailPage] Missing or invalid itineraries in offer payload:', offer);
+      return [];
+    }
+    
+    if (offer.itineraries.length === 0) {
+      console.warn('[BookingDetailPage] Empty itineraries array in offer payload');
+      return [];
+    }
+    
+    console.log(`[BookingDetailPage] Extracting ${offer.itineraries.length} itinerary/itineraries from flight payload`);
+    
     // Map each itinerary to boarding pass data
     return offer.itineraries.map((itinerary, index) => {
+      // Validate itinerary structure
+      if (!itinerary.segments || !Array.isArray(itinerary.segments) || itinerary.segments.length === 0) {
+        console.error(`[BookingDetailPage] Invalid segments in itinerary ${index}:`, itinerary);
+        return null;
+      }
+      
       const firstSegment = itinerary.segments[0];
       const lastSegment = itinerary.segments[itinerary.segments.length - 1];
       
-      return {
+      // Validate segment data
+      if (!firstSegment?.departure || !firstSegment?.carrierCode || !lastSegment?.arrival) {
+        console.error(`[BookingDetailPage] Missing required data in itinerary ${index} segments:`, {
+          firstSegment,
+          lastSegment
+        });
+        return null;
+      }
+      
+      const flightDetails = {
         flightNumber: `${firstSegment.carrierCode}-${firstSegment.number}`,
         departureCode: firstSegment.departure.iataCode,
         arrivalCode: lastSegment.arrival.iataCode,
@@ -55,7 +88,16 @@ const BookingDetailPage: React.FC = () => {
         airline: firstSegment.carrierCode,
         itineraryIndex: index,
       };
-    });
+      
+      console.log(`[BookingDetailPage] Itinerary ${index} (${index === 0 ? 'Outbound' : 'Return'}):`, {
+        route: `${flightDetails.departureCode} → ${flightDetails.arrivalCode}`,
+        departure: flightDetails.departureDateTime,
+        arrival: flightDetails.arrivalDateTime,
+        flight: flightDetails.flightNumber,
+      });
+      
+      return flightDetails;
+    }).filter((itinerary): itinerary is NonNullable<typeof itinerary> => itinerary !== null);
   }, [flight]);
 
   // Determine error type
@@ -181,6 +223,10 @@ const BookingDetailPage: React.FC = () => {
                   booking={booking}
                   flight={itinerary}
                 />
+                {/* Add divider between boarding passes for round-trip flights */}
+                {flightItineraries.length > 1 && index < flightItineraries.length - 1 && (
+                  <Divider sx={{ mt: 4, mb: 0 }} />
+                )}
               </Box>
             ))}
 
@@ -205,9 +251,17 @@ const BookingDetailPage: React.FC = () => {
           <Typography variant="h6" gutterBottom>
             Dados do voo não disponíveis
           </Typography>
-          <Typography variant="body2">
-            Não foi possível carregar os detalhes do voo para esta reserva.
+          <Typography variant="body2" sx={{ mb: 2 }}>
+            Não foi possível carregar os detalhes do voo para esta reserva. Por favor, tente novamente.
           </Typography>
+          <Button
+            variant="contained"
+            startIcon={<RefreshIcon />}
+            onClick={handleRetry}
+            sx={{ mt: 1 }}
+          >
+            Tentar Novamente
+          </Button>
         </Alert>
       )}
     </Container>

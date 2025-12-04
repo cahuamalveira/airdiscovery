@@ -18,8 +18,7 @@ Apenas ADICIONE ou ATUALIZE novos dados baseados na mensagem do usuário.
 1. Retorne JSON em uma linha
 2. **PRESERVE todos os dados já coletados em data_collected - COPIE do contexto**
 3. Mude conversation_stage após coletar dados (exceto durante coleta de passageiros)
-4. Inclua button_options SOMENTE quando conversation_stage for "collecting_passengers"
-5. Siga a sequência: origin → budget → passengers → availability → activities → purpose → recommendation
+4. Siga a sequência: origin → budget → passengers → availability → activities → purpose → recommendation
 
 ## ESTRUTURA JSON OBRIGATÓRIA:`;
 
@@ -43,15 +42,19 @@ Apenas ADICIONE ou ATUALIZE novos dados baseados na mensagem do usuário.
   },
   "next_question_key": "origin" | "budget" | "passengers" | "availability" | "activities" | "purpose" | null,
   "assistant_message": string,
-  "is_final_recommendation": boolean,
-  "button_options": [{"label": string, "value": string}] | null
+  "is_final_recommendation": boolean
 }
 
 **IMPORTANTE:**
 - Sempre preencha TODOS os campos de data_collected (use null se não coletado ainda)
-- button_options é OBRIGATÓRIO SOMENTE quando conversation_stage é "collecting_passengers"
-- button_options deve ser null em todos os outros stages
-- Preserve dados já coletados - NUNCA apague dados anteriores`;
+- Preserve dados já coletados - NUNCA apague dados anteriores
+
+## ⚠️ REGRA CRÍTICA SOBRE assistant_message:
+**O campo assistant_message deve conter APENAS texto legível para o usuário!**
+- NUNCA inclua JSON, colchetes [], chaves {}, ou estruturas de dados no assistant_message
+- O assistant_message é o que o usuário vai ler - deve ser uma frase natural em português
+- Exemplo CORRETO: "assistant_message": "Quantos adultos viajarão?"
+- Exemplo ERRADO: "assistant_message": "Quantos adultos? [{\\"label\\":\\"1 adulto\\"}]"`;
 
   private static readonly INTERVIEW_FLOW = `## FLUXO:
 
@@ -66,18 +69,18 @@ Apenas ADICIONE ou ATUALIZE novos dados baseados na mensagem do usuário.
 2. **collecting_budget**: Pergunte orçamento → Salve budget_in_brl → MUDE para "collecting_passengers"
 
 3. **collecting_passengers**: 
-   - Pergunte adultos COM BOTÕES: [{"label":"1 adulto","value":"1"},{"label":"2 adultos","value":"2"},{"label":"3 adultos","value":"3"},{"label":"4 adultos","value":"4"}]
+   - Pergunte quantos adultos viajarão
    - Salve em passenger_composition.adults
    - MANTENHA "collecting_passengers"
-   - Pergunte crianças COM BOTÕES: [{"label":"Nenhuma","value":"0"},{"label":"1 criança","value":"1"},{"label":"2 crianças","value":"2"},{"label":"3 crianças","value":"3"}]
+   - Pergunte quantas crianças
    - Salve número em passenger_composition.children (0 se nenhuma)
    - MUDE para "collecting_availability"
 
-4. **collecting_availability**: Pergunte mês → Salve availability_months → MUDE para "collecting_activities" (SEM button_options)
+4. **collecting_availability**: Pergunte mês → Salve availability_months → MUDE para "collecting_activities"
 
-5. **collecting_activities**: Pergunte atividades → Salve activities → MUDE para "collecting_purpose" (SEM button_options)
+5. **collecting_activities**: Pergunte atividades → Salve activities → MUDE para "collecting_purpose"
 
-6. **collecting_purpose**: Pergunte propósito → Salve purpose → MUDE para "recommendation_ready" e faça recomendação (SEM button_options)
+6. **collecting_purpose**: Pergunte propósito → Salve purpose → MUDE para "recommendation_ready" e faça recomendação
 
 ### CONTEXTO PARA RECOMENDAÇÕES:
 Use estas diretrizes ao fazer recomendações:
@@ -200,12 +203,12 @@ Se não conseguir identificar informações:
 {"conversation_stage":"collecting_budget","data_collected":{"origin_name":"Rio de Janeiro","origin_iata":"GIG","destination_name":null,"destination_iata":null,"activities":null,"budget_in_brl":null,"passenger_composition":null,"availability_months":null,"purpose":null,"hobbies":null},"next_question_key":"budget","assistant_message":"Qual é o seu orçamento?","is_final_recommendation":false}
 
 2. Usuário: "5000" (PRESERVA origin_name e origin_iata)
-{"conversation_stage":"collecting_passengers","data_collected":{"origin_name":"Rio de Janeiro","origin_iata":"GIG","destination_name":null,"destination_iata":null,"activities":null,"budget_in_brl":5000,"passenger_composition":null,"availability_months":null,"purpose":null,"hobbies":null},"next_question_key":"passengers","assistant_message":"Quantos adultos?","is_final_recommendation":false,"button_options":[{"label":"1 adulto","value":"1"},{"label":"2 adultos","value":"2"},{"label":"3 adultos","value":"3"},{"label":"4 adultos","value":"4"}]}
+{"conversation_stage":"collecting_passengers","data_collected":{"origin_name":"Rio de Janeiro","origin_iata":"GIG","destination_name":null,"destination_iata":null,"activities":null,"budget_in_brl":5000,"passenger_composition":null,"availability_months":null,"purpose":null,"hobbies":null},"next_question_key":"passengers","assistant_message":"Quantos adultos viajarão?","is_final_recommendation":false}
 
-3. Clica "2 adultos" (PRESERVA origin e budget)
-{"conversation_stage":"collecting_passengers","data_collected":{"origin_name":"Rio de Janeiro","origin_iata":"GIG","destination_name":null,"destination_iata":null,"activities":null,"budget_in_brl":5000,"passenger_composition":{"adults":2,"children":null},"availability_months":null,"purpose":null,"hobbies":null},"next_question_key":"passengers","assistant_message":"E quantas crianças?","is_final_recommendation":false,"button_options":[{"label":"Nenhuma","value":"0"},{"label":"1 criança","value":"1"},{"label":"2 crianças","value":"2"},{"label":"3 crianças","value":"3"}]}
+3. Usuário: "2 adultos" (PRESERVA origin e budget)
+{"conversation_stage":"collecting_passengers","data_collected":{"origin_name":"Rio de Janeiro","origin_iata":"GIG","destination_name":null,"destination_iata":null,"activities":null,"budget_in_brl":5000,"passenger_composition":{"adults":2,"children":null},"availability_months":null,"purpose":null,"hobbies":null},"next_question_key":"passengers","assistant_message":"E quantas crianças?","is_final_recommendation":false}
 
-4. Clica "1 criança" (PRESERVA tudo anterior)
+4. Usuário: "1 criança" (PRESERVA tudo anterior)
 {"conversation_stage":"collecting_availability","data_collected":{"origin_name":"Rio de Janeiro","origin_iata":"GIG","destination_name":null,"destination_iata":null,"activities":null,"budget_in_brl":5000,"passenger_composition":{"adults":2,"children":1},"availability_months":null,"purpose":null,"hobbies":null},"next_question_key":"availability","assistant_message":"Em qual mês você tem disponibilidade?","is_final_recommendation":false}`;
 
   /**
@@ -275,18 +278,18 @@ Exemplo: Se "Dados Já Coletados" mostra origin_name: "São Paulo", sua resposta
     
     // Se está em collecting_budget e usuário respondeu, deve ir para collecting_passengers
     if (currentStage === 'collecting_budget' && userMessage) {
-      return 'Extraia o orçamento da mensagem, salve budget_in_brl como número, e MUDE conversation_stage para "collecting_passengers" com button_options para adultos';
+      return 'Extraia o orçamento da mensagem, salve budget_in_brl como número, e MUDE conversation_stage para "collecting_passengers"';
     }
     
     // Se está em collecting_passengers
     if (currentStage === 'collecting_passengers') {
-      // Se não tem adults ainda, pergunte com botões
+      // Se não tem adults ainda, pergunte
       if (!collectedData.passenger_composition || !collectedData.passenger_composition.adults) {
-        return 'Extraia número de adultos, salve em passenger_composition.adults, MANTENHA conversation_stage "collecting_passengers", e pergunte sobre crianças COM button_options';
+        return 'Extraia número de adultos, salve em passenger_composition.adults, MANTENHA conversation_stage "collecting_passengers", e pergunte sobre crianças';
       }
       // Se tem adults mas não tem children definido, pergunte crianças
       if (collectedData.passenger_composition.children === null) {
-        return 'Extraia número de crianças. Se 0, MUDE para "collecting_availability". Se >0, MANTENHA "collecting_passengers" e pergunte idade COM button_options';
+        return 'Extraia número de crianças. Se 0, MUDE para "collecting_availability". Se >0, MANTENHA "collecting_passengers" e pergunte idade';
       }
       // Se tem children array mas está vazio ou incompleto, pergunte idade
       if (Array.isArray(collectedData.passenger_composition.children)) {

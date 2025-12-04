@@ -2,7 +2,9 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
 import { ChatSessionRepository } from './repositories/chat-session.repository';
 import { ChatbotService } from './chatbot.service';
-import { CollectedData, ConversationStage } from './interfaces/json-response.interface';
+import { JsonResponseParser } from './utils/json-response-parser';
+import { LoggerService } from '../logger/logger.service';
+import { CollectedData } from './interfaces/json-response.interface';
 
 describe('Stage Calculation with Passengers', () => {
   let service: ChatbotService;
@@ -16,6 +18,31 @@ describe('Stage Calculation with Passengers', () => {
             getSession: jest.fn(),
             saveSession: jest.fn(),
             deleteSession: jest.fn()
+          }
+        },
+        {
+          provide: JsonResponseParser,
+          useValue: {
+            sanitizeResponse: jest.fn(),
+            parseResponse: jest.fn(),
+            generateFallback: jest.fn()
+          }
+        },
+        {
+          provide: LoggerService,
+          useValue: {
+            child: jest.fn().mockReturnValue({
+              log: jest.fn(),
+              debug: jest.fn(),
+              info: jest.fn(),
+              warn: jest.fn(),
+              error: jest.fn()
+            }),
+            log: jest.fn(),
+            debug: jest.fn(),
+            info: jest.fn(),
+            warn: jest.fn(),
+            error: jest.fn()
           }
         },
         ChatbotService,
@@ -95,9 +122,7 @@ describe('Stage Calculation with Passengers', () => {
         hobbies: null,
         passenger_composition: {
           adults: 2,
-          children: [
-            { age: 5, isPaying: true }
-          ]
+          children: 1
         }
       };
 
@@ -140,12 +165,23 @@ describe('Stage Calculation with Passengers', () => {
       stage = (service as any).calculateCorrectStage(data, false);
       expect(stage).toBe('collecting_passengers');
 
-      // Test 4: Has origin, budget, and passengers, no availability -> collecting_availability
+      // Test 4: Has origin, budget, and adults but no children -> collecting_passengers (still collecting children)
       data = {
         ...data,
         passenger_composition: {
           adults: 1,
           children: null
+        }
+      };
+      stage = (service as any).calculateCorrectStage(data, false);
+      expect(stage).toBe('collecting_passengers');
+
+      // Test 4b: Has origin, budget, and complete passengers -> collecting_availability
+      data = {
+        ...data,
+        passenger_composition: {
+          adults: 1,
+          children: 0
         }
       };
       stage = (service as any).calculateCorrectStage(data, false);
@@ -190,13 +226,35 @@ describe('Stage Calculation with Passengers', () => {
         hobbies: ['Fotografia'],
         passenger_composition: {
           adults: 1,
-          children: null
+          children: 0
         }
       };
 
       const stage = (service as any).calculateCorrectStage(data, true);
 
       expect(stage).toBe('recommendation_ready');
+    });
+
+    it('should return collecting_passengers when adults collected but children is null', () => {
+      const data: CollectedData = {
+        origin_name: 'São Paulo',
+        origin_iata: 'GRU',
+        destination_name: null,
+        destination_iata: null,
+        activities: null,
+        budget_in_brl: 3000,
+        availability_months: null,
+        purpose: null,
+        hobbies: null,
+        passenger_composition: {
+          adults: 2,
+          children: null
+        }
+      };
+
+      const stage = (service as any).calculateCorrectStage(data, false);
+
+      expect(stage).toBe('collecting_passengers');
     });
   });
 });

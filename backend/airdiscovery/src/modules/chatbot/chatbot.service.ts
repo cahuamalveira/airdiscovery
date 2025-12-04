@@ -26,6 +26,7 @@ import { JsonPromptBuilder } from './utils/json-prompt-builder';
 import { JsonResponseParser } from './utils/json-response-parser';
 import { convertAvailabilityToDateRange } from './utils/date-converter.util';
 import { PassengerValidationUtil } from './utils/passenger-validation.util';
+import { getButtonOptionsForStage } from './utils/button-options-generator';
 import { ERROR_MESSAGES } from './constants/error-messages.constant';
 import { LoggerService } from '../logger/logger.service';
 
@@ -588,6 +589,23 @@ export class ChatbotService {
       messages: [...updatedSession.messages, assistantMessage]
     });
 
+    // Inject button_options from static generator (not from LLM)
+    const buttonOptions = getButtonOptionsForStage(correctStage, mergedData);
+    // Cast to mutable to allow modification
+    const mutableResponse = jsonResponse as { button_options?: readonly { label: string; value: string }[] };
+    if (buttonOptions) {
+      mutableResponse.button_options = [...buttonOptions];
+      this.logger.debug('Button options injected', {
+        function: 'processCompleteResponse',
+        sessionId: session.sessionId,
+        stage: correctStage,
+        buttonCount: buttonOptions.length
+      });
+    } else {
+      // Remove any button_options that may have come from LLM
+      delete mutableResponse.button_options;
+    }
+
     // Retorna resposta final
     return {
       content: jsonResponse.assistant_message,
@@ -658,8 +676,12 @@ export class ChatbotService {
     if (!data.budget_in_brl) {
       return 'collecting_budget';
     }
-    // NEW: Check for passenger composition before proceeding to availability
-    if (!data.passenger_composition || !data.passenger_composition.adults || data.passenger_composition.adults === 0) {
+    // Check for passenger composition before proceeding to availability
+    // Must have adults AND children (children can be 0, but not null)
+    if (!data.passenger_composition || 
+        !data.passenger_composition.adults || 
+        data.passenger_composition.adults === 0 ||
+        data.passenger_composition.children === null) {
       return 'collecting_passengers';
     }
     if (!data.availability_months || data.availability_months.length === 0) {

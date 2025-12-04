@@ -110,14 +110,6 @@ const Layout: React.FC<{ isAuthenticated: boolean, user: AuthUser | null, logout
             
             {/* Chat Interface - only show for authenticated users */}
             {isAuthenticated && <ChatInterface />}
-            
-            <Box component="footer" sx={{ bgcolor: 'background.paper', py: 6 }}>
-                <Container maxWidth="lg">
-                    <Typography variant="body2" color="text.secondary" align="center">
-                        © {new Date().getFullYear()} AIR Discovery. Todos os direitos reservados.
-                    </Typography>
-                </Container>
-            </Box>
         </>
     );
 };

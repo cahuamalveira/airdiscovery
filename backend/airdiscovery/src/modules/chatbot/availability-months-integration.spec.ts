@@ -3,6 +3,8 @@ import { ConfigService } from '@nestjs/config';
 import { ChatSessionRepository } from './repositories/chat-session.repository';
 import { ChatbotService } from './chatbot.service';
 import { ChatSession, UserProfile } from './interfaces/chat.interface';
+import { JsonResponseParser } from './utils/json-response-parser';
+import { LoggerService } from '../logger/logger.service';
 
 describe('Availability Months Integration Test', () => {
   let repository: ChatSessionRepository;
@@ -25,6 +27,29 @@ describe('Availability Months Integration Test', () => {
               };
               return config[key] || defaultValue;
             })
+          }
+        },
+        {
+          provide: JsonResponseParser,
+          useValue: {
+            sanitizeResponse: jest.fn(),
+            parseResponse: jest.fn(),
+            generateFallback: jest.fn()
+          }
+        },
+        {
+          provide: LoggerService,
+          useValue: {
+            child: jest.fn().mockReturnValue({
+              log: jest.fn(),
+              error: jest.fn(),
+              warn: jest.fn(),
+              debug: jest.fn()
+            }),
+            log: jest.fn(),
+            error: jest.fn(),
+            warn: jest.fn(),
+            debug: jest.fn()
           }
         }
       ]
