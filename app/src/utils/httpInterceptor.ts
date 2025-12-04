@@ -21,7 +21,7 @@ export class HttpInterceptor {
   // Método para fazer requisições HTTP com token automaticamente
   async fetch(url: string, options: RequestInit = {}): Promise<Response> {
     const token = await this.getAccessToken?.();
-    
+
     const headers = new Headers(options.headers);
     
     if (token) {

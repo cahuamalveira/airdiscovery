@@ -39,9 +39,9 @@ const BookingCard: React.FC<BookingCardProps> = ({ booking }) => {
         };
       case BookingStatus.AWAITING_PAYMENT:
         return {
-          label: 'Aguardando Pagamento',
-          color: 'warning' as const,
-          icon: <ScheduleIcon fontSize="small" />,
+          label: 'Confirmada',
+          color: 'success' as const,
+          icon: <CheckCircleIcon fontSize="small" />,
         };
       case BookingStatus.PENDING:
         return {

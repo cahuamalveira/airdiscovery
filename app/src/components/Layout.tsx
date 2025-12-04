@@ -40,17 +40,6 @@ const Layout: React.FC<{ isAuthenticated: boolean, user: AuthUser | null, logout
                         AIR Discovery
                     </Typography>
                     <Box sx={{ display: 'flex' }}>
-                        <Button color="inherit" component={Link} to="/destinos">
-                            Destinos
-                        </Button>
-                        <Button color="inherit" component={Link} to="/voos">
-                            Voos
-                        </Button>
-                        {isAuthenticated && (
-                            <Button color="inherit" component={Link} to="/wishlist">
-                                Lista de Desejos
-                            </Button>
-                        )}
                         {isAuthenticated && (
                             <Button color="inherit" component={Link} to="/minhas-reservas">
                                 Minhas Reservas

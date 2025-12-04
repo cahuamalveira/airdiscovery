@@ -26,12 +26,12 @@ import CustomAuthenticator from './components/CustomAuthenticator';
 
 // Lazy load páginas autenticadas
 const RecommendationsPage = React.lazy(() => import('./pages/RecommendationsPage'));
-const Results = React.lazy(() => import('./pages/Results'));
-const FlightSearch = React.lazy(() => import('./pages/FlightSearch'));
-const FlightPurchase = React.lazy(() => import('./pages/FlightPurchase'));
+//const Results = React.lazy(() => import('./pages/Results'));
+//const FlightSearch = React.lazy(() => import('./pages/FlightSearch'));
+//const FlightPurchase = React.lazy(() => import('./pages/FlightPurchase'));
 const CheckoutPage = React.lazy(() => import('./pages/CheckoutPage'));
 const ConfirmationPage = React.lazy(() => import('./pages/ConfirmationPage'));
-const Wishlist = React.lazy(() => import('./pages/Wishlist'));
+//const Wishlist = React.lazy(() => import('./pages/Wishlist'));
 const BookingHistoryPage = React.lazy(() => import('./pages/BookingHistoryPage'));
 const BookingDetailPage = React.lazy(() => import('./pages/BookingDetailPage'));
 const ChatSessionManager = React.lazy(() => import('./pages/ChatSessionManager'));
@@ -122,12 +122,8 @@ const AppContent: React.FC = () => {
                         <Routes>
                             <Route path="/" element={<Layout isAuthenticated={!!user} user={user} logout={signOut} />}>
                                 <Route path="recomendacoes/:origin/:destination" element={<RecommendationsPage />} />
-                                <Route path="resultados/:destinationId/:profileType" element={<Results />} />
-                                <Route path="voos" element={<FlightSearch />} />
                                 <Route path="checkout/:flightId" element={<CheckoutPage />} />
                                 <Route path="confirmation/:bookingId" element={<ConfirmationPage />} />
-                                <Route path="voos/selecionar/:flightId/:date" element={<FlightPurchase />} />
-                                <Route path="wishlist" element={<Wishlist />} />
                                 <Route path="minhas-reservas" element={<BookingHistoryPage />} />
                                 <Route path="minhas-reservas/:bookingId" element={<BookingDetailPage />} />
                                 <Route path="chat" element={<ChatSessionManager />} />
